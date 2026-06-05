@@ -16,6 +16,7 @@ function testRecipe(): Recipe {
     cookMinutes: 0,
     tags: [],
     favorite: false,
+    visibility: "private",
     currentVersion: 1,
     createdAt: "2026-01-01T00:00:00.000Z",
     versions: [
@@ -196,4 +197,3 @@ describe("cooking feedback", () => {
     expect(result.pantry[0].needsConfirmation).toBe(true);
   });
 });
-

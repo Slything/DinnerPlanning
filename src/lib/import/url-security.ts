@@ -49,7 +49,7 @@ export async function safeFetchRecipePage(input: string): Promise<string> {
       redirect: "manual",
       signal: controller.signal,
       headers: {
-        "User-Agent": "GatherAndGrazeRecipeImporter/1.0",
+        "User-Agent": "DinnerMadeEasyRecipeImporter/1.0",
         Accept: "text/html,application/xhtml+xml"
       }
     }).finally(() => clearTimeout(timer));
@@ -129,4 +129,3 @@ export function htmlToPlainText(html: string): string {
     .trim()
     .slice(0, 40_000);
 }
-

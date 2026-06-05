@@ -30,6 +30,8 @@ export const importedRecipeSchema = z.object({
   confidence: z.enum(["low", "medium", "high"])
 });
 
+export type ImportedRecipe = z.infer<typeof importedRecipeSchema>;
+
 export const importedRecipeJsonSchema = {
   type: "object",
   additionalProperties: false,
@@ -86,4 +88,3 @@ export const importedRecipeJsonSchema = {
     confidence: { type: "string", enum: ["low", "medium", "high"] }
   }
 } as const;
-

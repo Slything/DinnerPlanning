@@ -2,8 +2,8 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Gather & Graze",
-    short_name: "Gather",
+    name: "Dinner Made Easy",
+    short_name: "Dinner Easy",
     description: "Shared dinner planning, pantry tracking, and shopping lists.",
     start_url: "/",
     display: "standalone",
@@ -26,4 +26,3 @@ export default function manifest(): MetadataRoute.Manifest {
     ]
   };
 }
-

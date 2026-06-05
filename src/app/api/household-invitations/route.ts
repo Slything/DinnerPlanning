@@ -3,28 +3,36 @@ import { z } from "zod";
 import { createAdminSupabaseClient, requireUser } from "@/lib/supabase/server";
 
 const schema = z.object({
-  email: z.string().email(),
-  householdId: z.string()
+  email: z.string().email()
 });
 
 export async function POST(request: Request) {
   try {
     const input = schema.parse(await request.json());
-    const { user } = await requireUser();
+    const { supabase, user } = await requireUser();
     const admin = createAdminSupabaseClient();
-    if (!admin || !user) {
-      return NextResponse.json({
-        id: `demo-invite-${crypto.randomUUID()}`,
-        email: input.email,
-        expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString(),
-        demo: true
-      });
+    if (!supabase || !admin || !user) {
+      return NextResponse.json(
+        { error: "Sign in and configure Supabase before inviting someone." },
+        { status: 401 }
+      );
+    }
+    const { data: membership, error: membershipError } = await supabase
+      .from("household_members")
+      .select("household_id")
+      .eq("user_id", user.id)
+      .single();
+    if (membershipError || !membership) {
+      return NextResponse.json(
+        { error: "Create or join a household before sending invitations." },
+        { status: 403 }
+      );
     }
     const token = crypto.randomUUID();
     const { data, error } = await admin
       .from("household_invitations")
       .insert({
-        household_id: input.householdId,
+        household_id: membership.household_id,
         email: input.email.toLowerCase(),
         token,
         invited_by: user.id
@@ -32,11 +40,33 @@ export async function POST(request: Request) {
       .select("id,email,expires_at")
       .single();
     if (error) throw error;
+    const appUrl =
+      process.env.NEXT_PUBLIC_APP_URL ?? new URL(request.url).origin;
+    const inviteUrl = `${appUrl.replace(/\/$/, "")}/invite/${token}`;
+    const { data: users } = await admin.auth.admin.listUsers({
+      page: 1,
+      perPage: 1000
+    });
+    const accountExists = users.users.some(
+      (candidate) =>
+        candidate.email?.toLowerCase() === input.email.toLowerCase()
+    );
+    let emailSent = false;
+    if (!accountExists) {
+      const { error: inviteError } =
+        await admin.auth.admin.inviteUserByEmail(input.email, {
+          redirectTo: inviteUrl
+        });
+      if (inviteError) throw inviteError;
+      emailSent = true;
+    }
     return NextResponse.json({
       id: data.id,
       email: data.email,
       expiresAt: data.expires_at,
-      token
+      token,
+      inviteUrl,
+      emailSent
     });
   } catch (error) {
     return NextResponse.json(
@@ -45,4 +75,3 @@ export async function POST(request: Request) {
     );
   }
 }
-

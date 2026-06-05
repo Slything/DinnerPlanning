@@ -128,7 +128,6 @@ h3,
   gap: 8px;
 }
 
-.demo-pill,
 .status-pill,
 .tag,
 .eyebrow {
@@ -137,12 +136,6 @@ h3,
   letter-spacing: 0.08em;
   font-size: 10px;
   font-weight: 750;
-}
-
-.demo-pill {
-  padding: 7px 9px;
-  background: var(--terracotta-light);
-  color: #8b4c32;
 }
 
 .app-main {
@@ -490,6 +483,41 @@ h3,
 
 .search-input-wrap input {
   padding-left: 43px;
+}
+
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -7px 0 18px;
+}
+
+.filter-chip {
+  padding: 8px 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.filter-chip.active {
+  border-color: var(--green);
+  background: var(--sage-light);
+  color: var(--green);
+}
+
+.field-note,
+.auth-inline-link {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.auth-inline-link {
+  display: block;
+  text-align: center;
 }
 
 input,
@@ -1301,10 +1329,6 @@ label {
 
   .meal-actions {
     flex-direction: column;
-  }
-
-  .demo-pill {
-    display: none;
   }
 
   .form-two,

@@ -21,6 +21,7 @@ export interface Household {
   name: string;
   defaultServings: number;
   weekStartsOn: 0 | 1;
+  aiModelId?: string;
 }
 
 export interface HouseholdMember {
@@ -33,6 +34,7 @@ export interface HouseholdMember {
 
 export interface IngredientAmount {
   id: ID;
+  catalogId?: ID;
   name: string;
   canonicalName: string;
   quantity: number | null;
@@ -43,6 +45,28 @@ export interface IngredientAmount {
   aisle: GroceryAisle;
   optional?: boolean;
 }
+
+export interface IngredientCatalogEntry {
+  id: ID;
+  householdId: ID;
+  canonicalName: string;
+  displayName: string;
+  defaultUnit: string;
+  dimension: UnitDimension;
+  aisle: GroceryAisle;
+  aliases: string[];
+  usageCount: number;
+  lastUsedAt: string;
+}
+
+export type RecipeSortMode =
+  | "least-recent"
+  | "fastest"
+  | "slowest"
+  | "newest"
+  | "alphabetical";
+
+export type RecipeVisibility = "private" | "public";
 
 export interface RecipeVersion {
   id: ID;
@@ -68,9 +92,68 @@ export interface Recipe {
   cookMinutes: number;
   tags: string[];
   favorite: boolean;
+  visibility: RecipeVisibility;
+  publishedVersion?: number;
+  attributionHousehold?: string;
+  updateAvailable?: boolean;
   currentVersion: number;
   versions: RecipeVersion[];
   createdAt: string;
+}
+
+export interface RecipeShare {
+  id: ID;
+  sourceRecipeId: ID;
+  sourceHouseholdId: ID;
+  recipientEmail?: string;
+  recipientHouseholdId?: ID;
+  kind: "public" | "private";
+  active: boolean;
+  createdAt: string;
+  acceptedAt?: string;
+}
+
+export interface RecipeShareRevision {
+  id: ID;
+  shareId: ID;
+  sourceRecipeId: ID;
+  sourceVersion: number;
+  snapshot: SharedRecipeSnapshot;
+  createdAt: string;
+}
+
+export interface RecipeCopyOrigin {
+  id: ID;
+  recipeId: ID;
+  sourceRecipeId: ID;
+  shareId?: ID;
+  lastAppliedRevisionId?: ID;
+  updatesEnabled: boolean;
+}
+
+export interface SharedRecipeSnapshot {
+  title: string;
+  description: string;
+  sourceUrl?: string;
+  sourceCreator?: string;
+  imageUrl?: string;
+  prepMinutes: number;
+  cookMinutes: number;
+  tags: string[];
+  yield: number;
+  ingredients: IngredientAmount[];
+  instructions: string[];
+  attributionHousehold: string;
+}
+
+export interface AiModelOption {
+  id: string;
+  name: string;
+  contextLength: number;
+  supportsImages: boolean;
+  supportsStructuredOutput: boolean;
+  promptPrice?: string;
+  completionPrice?: string;
 }
 
 export interface RecipeDraft {
@@ -260,6 +343,7 @@ export interface AppState {
   members: HouseholdMember[];
   currentMemberId: ID;
   recipes: Recipe[];
+  ingredientCatalog: IngredientCatalogEntry[];
   weeklyPlan: WeeklyPlan;
   pantry: PantryItem[];
   pantryTransactions: PantryTransaction[];
@@ -267,5 +351,5 @@ export interface AppState {
   shoppingList: ShoppingList | null;
   cookingSessions: CookingSession[];
   proposals: RecipeChangeProposal[];
+  recipeOrigins: RecipeCopyOrigin[];
 }
-

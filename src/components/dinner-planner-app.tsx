@@ -9,15 +9,19 @@ import {
   ChevronRight,
   CircleAlert,
   Clock3,
+  Download,
+  Globe2,
   Heart,
   Home,
   LoaderCircle,
+  LogOut,
   PackageCheck,
   Pencil,
   Plus,
   RotateCcw,
   Search,
   Settings,
+  Share2,
   ShoppingBasket,
   Sparkles,
   Trash2,
@@ -34,10 +38,14 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import type {
   CookingAdjustment,
+  AiModelOption,
   GroceryAisle,
   IngredientAmount,
   PlannedMeal,
   Recipe,
+  RecipeSortMode,
+  RecipeVisibility,
+  SharedRecipeSnapshot,
   ShoppingListItem
 } from "@/lib/domain/types";
 import {
@@ -52,7 +60,13 @@ import {
   currentRecipeVersion
 } from "@/lib/domain/shopping";
 import { rankRecipeSuggestions } from "@/lib/domain/suggestions";
-import { useDemoStore } from "@/lib/demo/store";
+import {
+  filterAndSortRecipes,
+  searchIngredientCatalog
+} from "@/lib/domain/recipe-filters";
+import { useAppStore } from "@/lib/store/store";
+import { createClient } from "@/lib/supabase/client";
+import { clearOfflineShoppingData } from "@/lib/offline/shopping-queue";
 import {
   Avatar,
   EmptyState,
@@ -85,7 +99,7 @@ function quantityLabel(quantity: number | null, unit: string) {
 }
 
 export function DinnerPlannerApp() {
-  const { state, loaded } = useDemoStore();
+  const { state, loaded, error } = useAppStore();
   const [tab, setTab] = useState<Tab>("week");
   const [toast, setToast] = useState<string | null>(null);
 
@@ -119,12 +133,11 @@ export function DinnerPlannerApp() {
         <div className="brand">
           <div className="brand-mark">G</div>
           <div>
-            <div className="brand-wordmark">Gather &amp; Graze</div>
+            <div className="brand-wordmark">Dinner Made Easy</div>
             <p className="brand-subtitle">{state.household.name}</p>
           </div>
         </div>
         <div className="header-actions">
-          <span className="demo-pill">Local demo</span>
           <Avatar
             name={currentMember.displayName}
             color={currentMember.avatarColor}
@@ -168,12 +181,13 @@ export function DinnerPlannerApp() {
       </nav>
 
       {toast ? <div className="toast">{toast}</div> : null}
+      {error ? <div className="toast">{error}</div> : null}
     </div>
   );
 }
 
 function WeekScreen({ notify }: { notify: (message: string) => void }) {
-  const { state, removeMeal } = useDemoStore();
+  const { state, removeMeal } = useAppStore();
   const [pickerDate, setPickerDate] = useState<string | null>(null);
   const [cookMealId, setCookMealId] = useState<string | null>(null);
   const [proposalId, setProposalId] = useState<string | null>(null);
@@ -391,7 +405,7 @@ function MealPickerModal({
   onClose: () => void;
   notify: (message: string) => void;
 }) {
-  const { state, scheduleRecipe, scheduleSpecial } = useDemoStore();
+  const { state, scheduleRecipe, scheduleSpecial } = useAppStore();
   const [servings, setServings] = useState(state.household.defaultServings);
   const [query, setQuery] = useState("");
   const recipes = state.recipes.filter((recipe) =>
@@ -480,18 +494,29 @@ function MealPickerModal({
 }
 
 function RecipesScreen({ notify }: { notify: (message: string) => void }) {
-  const { state, toggleFavorite } = useDemoStore();
+  const { state, toggleFavorite } = useAppStore();
   const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<RecipeSortMode>("least-recent");
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [neverCookedOnly, setNeverCookedOnly] = useState(false);
+  const [maxMinutes, setMaxMinutes] = useState<number | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [proposalId, setProposalId] = useState<string | null>(null);
+  const [communityOpen, setCommunityOpen] = useState(false);
   const pending = state.proposals.filter(
     (proposal) => proposal.status === "pending"
   );
-  const recipes = state.recipes.filter((recipe) =>
-    `${recipe.title} ${recipe.description} ${recipe.tags.join(" ")}`
-      .toLowerCase()
-      .includes(query.toLowerCase())
+  const recipes = filterAndSortRecipes(
+    state.recipes,
+    state.cookingSessions,
+    {
+    query,
+    sort,
+    favoritesOnly,
+    neverCookedOnly,
+    maxMinutes
+    }
   );
 
   return (
@@ -502,10 +527,19 @@ function RecipesScreen({ notify }: { notify: (message: string) => void }) {
           <h1>Recipe box</h1>
           <p>Every keeper, plus the little changes that made it yours.</p>
         </div>
-        <button className="primary-button" onClick={() => setEditorOpen(true)}>
-          <Plus size={17} />
-          <span className="header-cta-label">Add recipe</span>
-        </button>
+        <div className="header-actions">
+          <button
+            className="secondary-button"
+            onClick={() => setCommunityOpen(true)}
+          >
+            <Globe2 size={17} />
+            <span className="header-cta-label">Community</span>
+          </button>
+          <button className="primary-button" onClick={() => setEditorOpen(true)}>
+            <Plus size={17} />
+            <span className="header-cta-label">Add recipe</span>
+          </button>
+        </div>
       </div>
 
       {pending.length ? (
@@ -534,6 +568,49 @@ function RecipesScreen({ notify }: { notify: (message: string) => void }) {
             placeholder="Search by recipe, ingredient, or tag"
           />
         </div>
+        <select
+          aria-label="Sort recipes"
+          value={sort}
+          onChange={(event) => setSort(event.target.value as RecipeSortMode)}
+        >
+          <option value="least-recent">Haven&apos;t eaten in a while</option>
+          <option value="fastest">Fastest</option>
+          <option value="slowest">Slowest</option>
+          <option value="newest">Newest</option>
+          <option value="alphabetical">A-Z</option>
+        </select>
+      </div>
+      <div className="filter-row">
+        <button
+          className={favoritesOnly ? "filter-chip active" : "filter-chip"}
+          type="button"
+          onClick={() => setFavoritesOnly((current) => !current)}
+        >
+          Favorites
+        </button>
+        <button
+          className={neverCookedOnly ? "filter-chip active" : "filter-chip"}
+          type="button"
+          onClick={() => setNeverCookedOnly((current) => !current)}
+        >
+          Never cooked
+        </button>
+        {[30, 45, 60].map((minutes) => (
+          <button
+            className={
+              maxMinutes === minutes ? "filter-chip active" : "filter-chip"
+            }
+            type="button"
+            key={minutes}
+            onClick={() =>
+              setMaxMinutes((current) =>
+                current === minutes ? null : minutes
+              )
+            }
+          >
+            Up to {minutes} min
+          </button>
+        ))}
       </div>
 
       <div className="recipe-grid">
@@ -590,6 +667,9 @@ function RecipesScreen({ notify }: { notify: (message: string) => void }) {
                 </span>
                 <span>v{recipe.currentVersion}</span>
               </div>
+              {recipe.updateAvailable ? (
+                <span className="cooked-badge">Update available</span>
+              ) : null}
             </button>
           </article>
         ))}
@@ -603,10 +683,16 @@ function RecipesScreen({ notify }: { notify: (message: string) => void }) {
       <RecipeDetailModal
         recipeId={detailId}
         onClose={() => setDetailId(null)}
+        notify={notify}
       />
       <ProposalReviewModal
         proposalId={proposalId}
         onClose={() => setProposalId(null)}
+        notify={notify}
+      />
+      <CommunityRecipeModal
+        open={communityOpen}
+        onClose={() => setCommunityOpen(false)}
         notify={notify}
       />
     </>
@@ -615,9 +701,11 @@ function RecipesScreen({ notify }: { notify: (message: string) => void }) {
 
 interface IngredientEditorValue {
   id: string;
+  catalogId?: string;
   name: string;
   quantity: string;
   unit: string;
+  aisle?: GroceryAisle;
 }
 
 function emptyIngredient(): IngredientEditorValue {
@@ -638,7 +726,7 @@ function RecipeEditorModal({
   onClose: () => void;
   notify: (message: string) => void;
 }) {
-  const { addRecipe } = useDemoStore();
+  const { state, addRecipe } = useAppStore();
   const [mode, setMode] = useState<"manual" | "import">("manual");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -648,12 +736,18 @@ function RecipeEditorModal({
   const [prepMinutes, setPrepMinutes] = useState("15");
   const [cookMinutes, setCookMinutes] = useState("30");
   const [tags, setTags] = useState("");
+  const [visibility, setVisibility] =
+    useState<RecipeVisibility>("private");
   const [ingredients, setIngredients] = useState<IngredientEditorValue[]>([
     emptyIngredient(),
     emptyIngredient()
   ]);
   const [instructions, setInstructions] = useState([""]);
   const [importText, setImportText] = useState("");
+  const [images, setImages] = useState<string[]>([]);
+  const [models, setModels] = useState<AiModelOption[]>([]);
+  const [modelId, setModelId] = useState(state.household.aiModelId ?? "");
+  const [modelsLoading, setModelsLoading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [warnings, setWarnings] = useState<string[]>([]);
 
@@ -667,15 +761,58 @@ function RecipeEditorModal({
     setPrepMinutes("15");
     setCookMinutes("30");
     setTags("");
+    setVisibility("private");
     setIngredients([emptyIngredient(), emptyIngredient()]);
     setInstructions([""]);
     setImportText("");
+    setImages([]);
+    setModelId(state.household.aiModelId ?? "");
     setWarnings([]);
   }
 
+  useEffect(() => {
+    if (!open || mode !== "import" || models.length || modelsLoading) return;
+    setModelsLoading(true);
+    void fetch("/api/ai/models")
+      .then(async (response) => {
+        const result = (await response.json()) as {
+          models?: AiModelOption[];
+          error?: string;
+        };
+        if (!response.ok) throw new Error(result.error);
+        setModels(result.models ?? []);
+        if (!modelId && result.models?.[0]) setModelId(result.models[0].id);
+      })
+      .catch((error) =>
+        notify(
+          error instanceof Error
+            ? error.message
+            : "OpenRouter models could not be loaded."
+        )
+      )
+      .finally(() => setModelsLoading(false));
+  }, [mode, modelId, models.length, modelsLoading, notify, open]);
+
+  async function addScreenshots(files: FileList | null) {
+    if (!files) return;
+    const selected = Array.from(files).slice(0, 4);
+    const encoded = await Promise.all(
+      selected.map(
+        (file) =>
+          new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result));
+            reader.onerror = () => reject(reader.error);
+            reader.readAsDataURL(file);
+          })
+      )
+    );
+    setImages(encoded);
+  }
+
   async function analyzeImport() {
-    if (!sourceUrl && !importText) {
-      notify("Paste a recipe link or some recipe text first.");
+    if (!sourceUrl && !importText && images.length === 0) {
+      notify("Paste a recipe link, recipe text, or add a screenshot first.");
       return;
     }
     setImporting(true);
@@ -683,9 +820,17 @@ function RecipeEditorModal({
       const response = await fetch("/api/recipe-imports", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: sourceUrl || undefined, text: importText })
+        body: JSON.stringify({
+          url: sourceUrl || undefined,
+          text: importText,
+          images,
+          modelId: modelId || undefined
+        })
       });
-      if (!response.ok) throw new Error("Import failed");
+      if (!response.ok) {
+        const result = (await response.json()) as { error?: string };
+        throw new Error(result.error ?? "Import failed");
+      }
       const draft = (await response.json()) as {
         title: string;
         description: string;
@@ -713,36 +858,44 @@ function RecipeEditorModal({
           name: ingredient.name,
           quantity:
             ingredient.quantity === null ? "" : String(ingredient.quantity),
-          unit: ingredient.unit
+          unit: ingredient.unit,
+          catalogId: ingredient.catalogId,
+          aisle: ingredient.aisle
         }))
       );
       setInstructions(draft.instructions.length ? draft.instructions : [""]);
       setWarnings(draft.warnings);
       setMode("manual");
       notify("Draft extracted. Review every field before saving.");
-    } catch {
-      notify("I could not read that recipe. Try pasting the caption or text.");
+    } catch (error) {
+      notify(
+        error instanceof Error
+          ? error.message
+          : "I could not read that recipe. Try pasting the caption or text."
+      );
     } finally {
       setImporting(false);
     }
   }
 
-  function saveRecipe() {
+  async function saveRecipe() {
     const parsedIngredients = ingredients
       .filter((ingredient) => ingredient.name.trim())
-      .map((ingredient) =>
-        createIngredient(
+      .map((ingredient) => ({
+        ...createIngredient(
           ingredient.id,
           ingredient.name.trim(),
           parseQuantity(ingredient.quantity),
           ingredient.unit
-        )
-      );
+        ),
+        catalogId: ingredient.catalogId,
+        aisle: ingredient.aisle ?? inferAisle(ingredient.name)
+      }));
     if (!title.trim() || parsedIngredients.length === 0) {
       notify("Add a title and at least one ingredient.");
       return;
     }
-    addRecipe({
+    const saved = await addRecipe({
       title: title.trim(),
       description: description.trim(),
       sourceUrl: sourceUrl.trim() || undefined,
@@ -756,10 +909,15 @@ function RecipeEditorModal({
         .map((tag) => tag.trim())
         .filter(Boolean),
       favorite: false,
+      visibility,
       yield: Number(yieldCount) || 4,
       ingredients: parsedIngredients,
       instructions: instructions.map((step) => step.trim()).filter(Boolean)
     });
+    if (!saved) {
+      notify("The recipe could not be saved.");
+      return;
+    }
     notify(`${title.trim()} added to the household recipe box.`);
     reset();
     onClose();
@@ -814,11 +972,41 @@ function RecipeEditorModal({
               onChange={(event) => setImportText(event.target.value)}
             />
           </label>
+          <label>
+            OpenRouter model
+            <input
+              list="openrouter-models"
+              value={modelId}
+              onChange={(event) => setModelId(event.target.value)}
+              placeholder={
+                modelsLoading ? "Loading compatible models..." : "provider/model"
+              }
+            />
+            <datalist id="openrouter-models">
+              {models.map((model) => (
+                <option value={model.id} key={model.id}>
+                  {model.name}
+                  {model.supportsImages ? " · images" : ""}
+                </option>
+              ))}
+            </datalist>
+            <span className="field-note">
+              Search the catalog or type a custom model ID. Custom IDs are
+              validated before import.
+            </span>
+          </label>
           <label className="upload-placeholder">
             Screenshots
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              multiple
+              onChange={(event) => void addScreenshots(event.target.files)}
+            />
             <span>
-              Screenshot upload is enabled when Supabase Storage and OpenAI are
-              configured.
+              {images.length
+                ? `${images.length} screenshot${images.length === 1 ? "" : "s"} ready`
+                : "Add up to four recipe or social-media screenshots."}
             </span>
           </label>
           <button
@@ -919,6 +1107,18 @@ function RecipeEditorModal({
               placeholder="quick, vegetarian, family favorite"
             />
           </label>
+          <label>
+            Who can discover this recipe?
+            <select
+              value={visibility}
+              onChange={(event) =>
+                setVisibility(event.target.value as RecipeVisibility)
+              }
+            >
+              <option value="private">Private to this household</option>
+              <option value="public">Dinner Made Easy community</option>
+            </select>
+          </label>
 
           <div>
             <div className="subsection-header">
@@ -940,18 +1140,47 @@ function RecipeEditorModal({
               {ingredients.map((ingredient) => (
                 <div className="ingredient-editor-row" key={ingredient.id}>
                   <input
+                    list={`ingredient-catalog-${ingredient.id}`}
                     value={ingredient.name}
                     placeholder="Ingredient"
-                    onChange={(event) =>
+                    onChange={(event) => {
+                      const name = event.target.value;
+                      const match = state.ingredientCatalog.find(
+                        (entry) =>
+                          entry.displayName.toLowerCase() ===
+                            name.toLowerCase() ||
+                          entry.aliases.some(
+                            (alias) =>
+                              alias.toLowerCase() === name.toLowerCase()
+                          )
+                      );
                       setIngredients((current) =>
                         current.map((candidate) =>
                           candidate.id === ingredient.id
-                            ? { ...candidate, name: event.target.value }
+                            ? {
+                                ...candidate,
+                                name,
+                                catalogId: match?.id,
+                                unit: match?.defaultUnit ?? candidate.unit,
+                                aisle: match?.aisle,
+                                quantity: match ? "" : candidate.quantity
+                              }
                             : candidate
                         )
-                      )
-                    }
+                      );
+                    }}
                   />
+                  <datalist id={`ingredient-catalog-${ingredient.id}`}>
+                    {searchIngredientCatalog(
+                      state.ingredientCatalog,
+                      ingredient.name
+                    ).map((entry) => (
+                      <option
+                        value={entry.displayName}
+                        key={entry.id}
+                      >{`${entry.defaultUnit} · ${entry.aisle}`}</option>
+                    ))}
+                  </datalist>
                   <input
                     value={ingredient.quantity}
                     placeholder="Qty"
@@ -1066,13 +1295,44 @@ function RecipeEditorModal({
 
 function RecipeDetailModal({
   recipeId,
-  onClose
+  onClose,
+  notify
 }: {
   recipeId: string | null;
   onClose: () => void;
+  notify: (message: string) => void;
 }) {
-  const { state } = useDemoStore();
+  const {
+    state,
+    refresh,
+    setRecipeVisibility,
+    restoreRecipeVersion
+  } = useAppStore();
+  const [shareEmail, setShareEmail] = useState("");
+  const [shareUrl, setShareUrl] = useState("");
+  const [sharing, setSharing] = useState(false);
+  const [updating, setUpdating] = useState(false);
+  const [privateShares, setPrivateShares] = useState<
+    Array<{
+      id: string;
+      recipient_email: string;
+      active: boolean;
+      accepted_at: string | null;
+    }>
+  >([]);
   const recipe = state.recipes.find((candidate) => candidate.id === recipeId);
+  useEffect(() => {
+    if (!recipeId) return;
+    void fetch(`/api/recipe-invitations?recipeId=${recipeId}`)
+      .then(async (response) => {
+        if (!response.ok) return;
+        const result = (await response.json()) as {
+          shares?: typeof privateShares;
+        };
+        setPrivateShares(result.shares ?? []);
+      })
+      .catch(() => undefined);
+  }, [recipeId]);
   if (!recipe) {
     return (
       <Modal open={false} title="Recipe" onClose={onClose}>
@@ -1113,6 +1373,12 @@ function RecipeDetailModal({
           <span>Version</span>
         </div>
       </div>
+      {recipe.attributionHousehold ? (
+        <p className="field-note">
+          Shared by {recipe.attributionHousehold}
+          {recipe.sourceCreator ? ` · Original source: ${recipe.sourceCreator}` : ""}
+        </p>
+      ) : null}
       <div className="subsection-header">
         <h3>Ingredients</h3>
       </div>
@@ -1141,16 +1407,303 @@ function RecipeDetailModal({
       {recipe.versions.length > 1 ? (
         <div className="version-note">
           <RotateCcw size={16} />
-          This recipe has {recipe.versions.length} saved versions. The current
-          version includes approved cooking feedback.
+          <div className="row-main">
+            This recipe has {recipe.versions.length} saved versions. Restoring
+            creates another version, so no history is deleted.
+          </div>
+          <button
+            className="secondary-button"
+            onClick={() => {
+              restoreRecipeVersion(recipe.id, recipe.currentVersion - 1);
+              notify(
+                `Version ${recipe.currentVersion - 1} queued for restoration.`
+              );
+              onClose();
+            }}
+          >
+            Restore v{recipe.currentVersion - 1}
+          </button>
         </div>
       ) : null}
+      {recipe.updateAvailable ? (
+        <div className="proposal-callout">
+          <Download size={20} />
+          <div className="row-main">
+            <strong>Source update available</strong>
+            <p>
+              Applying it creates a new local version. Your current version
+              remains in history for rollback.
+            </p>
+          </div>
+          <button
+            className="primary-button"
+            disabled={updating}
+            onClick={async () => {
+              setUpdating(true);
+              const updateResponse = await fetch("/api/recipe-updates");
+              const updateResult = (await updateResponse.json()) as {
+                updates?: Array<{
+                  originId: string;
+                  recipeId: string;
+                  revisionId: string;
+                }>;
+                error?: string;
+              };
+              const update = updateResult.updates?.find(
+                (candidate) => candidate.recipeId === recipe.id
+              );
+              if (!update) {
+                notify(updateResult.error ?? "The update is no longer available.");
+                setUpdating(false);
+                return;
+              }
+              const response = await fetch("/api/recipe-updates", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  originId: update.originId,
+                  revisionId: update.revisionId
+                })
+              });
+              const result = (await response.json()) as { error?: string };
+              if (response.ok) {
+                await refresh();
+                notify("The source update was saved as a new recipe version.");
+                onClose();
+              } else {
+                notify(result.error ?? "The update could not be applied.");
+              }
+              setUpdating(false);
+            }}
+          >
+            {updating ? <LoaderCircle className="spin" size={16} /> : null}
+            Apply update
+          </button>
+        </div>
+      ) : null}
+      <div className="settings-card card">
+        <Globe2 size={20} color="#315c4a" />
+        <h3>Discovery</h3>
+        <p>
+          {recipe.visibility === "public"
+            ? "Signed-in Dinner Made Easy households can discover and copy this recipe."
+            : "Only your household can see this recipe unless you share it directly."}
+        </p>
+        <button
+          className="secondary-button"
+          onClick={() => {
+            const visibility =
+              recipe.visibility === "public" ? "private" : "public";
+            setRecipeVisibility(recipe.id, visibility);
+            notify(
+              visibility === "public"
+                ? "Recipe published to the community library."
+                : "Recipe removed from community discovery."
+            );
+          }}
+        >
+          {recipe.visibility === "public" ? "Make private" : "Publish recipe"}
+        </button>
+      </div>
+      <div className="settings-card card">
+        <Share2 size={20} color="#315c4a" />
+        <h3>Share privately</h3>
+        <p>
+          The invitation is email-bound and creates an independent copy in the
+          recipient&apos;s household.
+        </p>
+        <div className="invite-row">
+          <input
+            type="email"
+            value={shareEmail}
+            onChange={(event) => setShareEmail(event.target.value)}
+            placeholder="friend@example.com"
+          />
+          <button
+            className="primary-button"
+            disabled={sharing}
+            onClick={async () => {
+              setSharing(true);
+              const response = await fetch("/api/recipe-invitations", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  recipeId: recipe.id,
+                  email: shareEmail
+                })
+              });
+              const result = (await response.json()) as {
+                shareId?: string;
+                inviteUrl?: string;
+                error?: string;
+              };
+              if (response.ok && result.inviteUrl) {
+                setShareUrl(result.inviteUrl);
+                if (result.shareId) {
+                  setPrivateShares((current) => [
+                    {
+                      id: result.shareId!,
+                      recipient_email: shareEmail,
+                      active: true,
+                      accepted_at: null
+                    },
+                    ...current
+                  ]);
+                }
+                notify("Private recipe invitation created.");
+              } else {
+                notify(result.error ?? "The invitation could not be created.");
+              }
+              setSharing(false);
+            }}
+          >
+            {sharing ? <LoaderCircle className="spin" size={16} /> : "Share"}
+          </button>
+        </div>
+        {shareUrl ? <input value={shareUrl} readOnly /> : null}
+        {privateShares
+          .filter((share) => share.active)
+          .map((share) => (
+            <div className="member-row" key={share.id}>
+              <div className="row-main">
+                <strong>{share.recipient_email}</strong>
+                <span>
+                  {share.accepted_at
+                    ? "Copy accepted · future updates enabled"
+                    : "Invitation pending"}
+                </span>
+              </div>
+              <button
+                className="danger-button"
+                onClick={async () => {
+                  const response = await fetch(
+                    `/api/recipe-invitations/${share.id}/revoke`,
+                    { method: "POST" }
+                  );
+                  if (response.ok) {
+                    setPrivateShares((current) =>
+                      current.map((candidate) =>
+                        candidate.id === share.id
+                          ? { ...candidate, active: false }
+                          : candidate
+                      )
+                    );
+                    notify("Private sharing and future updates revoked.");
+                  } else {
+                    notify("The private share could not be revoked.");
+                  }
+                }}
+              >
+                Revoke
+              </button>
+            </div>
+          ))}
+      </div>
+    </Modal>
+  );
+}
+
+type CommunityRecipe = SharedRecipeSnapshot & {
+  id: string;
+  currentVersion: number;
+  createdAt: string;
+};
+
+function CommunityRecipeModal({
+  open,
+  onClose,
+  notify
+}: {
+  open: boolean;
+  onClose: () => void;
+  notify: (message: string) => void;
+}) {
+  const { refresh } = useAppStore();
+  const [recipes, setRecipes] = useState<CommunityRecipe[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setLoading(true);
+    void fetch("/api/community-recipes")
+      .then(async (response) => {
+        const result = (await response.json()) as {
+          recipes?: CommunityRecipe[];
+          error?: string;
+        };
+        if (!response.ok) throw new Error(result.error);
+        setRecipes(result.recipes ?? []);
+      })
+      .catch((error) =>
+        notify(
+          error instanceof Error
+            ? error.message
+            : "The community library could not be loaded."
+        )
+      )
+      .finally(() => setLoading(false));
+  }, [notify, open]);
+
+  return (
+    <Modal
+      open={open}
+      title="Community recipes"
+      eyebrow="Dinner Made Easy"
+      onClose={onClose}
+      wide
+    >
+      {loading ? (
+        <div className="app-loading">
+          <LoaderCircle className="spin" />
+          <span>Loading shared recipes...</span>
+        </div>
+      ) : recipes.length ? (
+        <div className="list-stack">
+          {recipes.map((recipe) => (
+            <article className="pantry-row card" key={recipe.id}>
+              <Globe2 size={20} color="#315c4a" />
+              <div className="row-main">
+                <strong>{recipe.title}</strong>
+                <span>
+                  Shared by {recipe.attributionHousehold} ·{" "}
+                  {recipe.prepMinutes + recipe.cookMinutes} min
+                </span>
+              </div>
+              <button
+                className="primary-button"
+                onClick={async () => {
+                  const response = await fetch("/api/community-recipes", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ recipeId: recipe.id })
+                  });
+                  const result = (await response.json()) as { error?: string };
+                  if (!response.ok) {
+                    notify(result.error ?? "The recipe could not be copied.");
+                    return;
+                  }
+                  await refresh();
+                  notify(`${recipe.title} copied to your household.`);
+                  onClose();
+                }}
+              >
+                <Download size={15} /> Save copy
+              </button>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <EmptyState
+          title="No public recipes yet"
+          body="Recipes published by other households will appear here."
+        />
+      )}
     </Modal>
   );
 }
 
 function PantryScreen({ notify }: { notify: (message: string) => void }) {
-  const { state, removePantryItem } = useDemoStore();
+  const { state, removePantryItem } = useAppStore();
   const [query, setQuery] = useState("");
   const [editId, setEditId] = useState<string | "new" | null>(null);
   const filtered = state.pantry.filter((item) =>
@@ -1258,7 +1811,7 @@ function PantryItemModal({
   onClose: () => void;
   notify: (message: string) => void;
 }) {
-  const { state, upsertPantryItem } = useDemoStore();
+  const { state, upsertPantryItem } = useAppStore();
   const item =
     itemId && itemId !== "new"
       ? state.pantry.find((candidate) => candidate.id === itemId)
@@ -1355,7 +1908,7 @@ function ShoppingScreen({ notify }: { notify: (message: string) => void }) {
     toggleShoppingItem,
     addShoppingItem,
     upsertPantryItem
-  } = useDemoStore();
+  } = useAppStore();
   const [manualName, setManualName] = useState("");
   const [completeOpen, setCompleteOpen] = useState(false);
   const review = useMemo(
@@ -1602,7 +2155,7 @@ function CompleteShoppingModal({
   onClose: () => void;
   notify: (message: string) => void;
 }) {
-  const { state, completeShopping } = useDemoStore();
+  const { state, completeShopping } = useAppStore();
   const checked = useMemo(
     () =>
       state.shoppingList?.items.filter((item) => item.checked) ?? [],
@@ -1681,7 +2234,7 @@ function CookingReviewModal({
   onProposal: (proposalId: string) => void;
   notify: (message: string) => void;
 }) {
-  const { state, cookMeal } = useDemoStore();
+  const { state, cookMeal } = useAppStore();
   const meal = state.weeklyPlan.meals.find(
     (candidate) => candidate.id === mealId
   );
@@ -1747,9 +2300,9 @@ function CookingReviewModal({
     setNewName("");
   }
 
-  function submit() {
+  async function submit() {
     if (!meal || !recipe) return;
-    const proposal = cookMeal(meal.id, notes, adjustments);
+    const proposal = await cookMeal(meal.id, notes, adjustments);
     notify(
       proposal
         ? `${recipe.title} marked cooked. Recipe improvements are ready to review.`
@@ -1955,7 +2508,7 @@ function ProposalReviewModal({
   onClose: () => void;
   notify: (message: string) => void;
 }) {
-  const { state, reviewProposal } = useDemoStore();
+  const { state, reviewProposal } = useAppStore();
   const proposal = state.proposals.find(
     (candidate) => candidate.id === proposalId
   );
@@ -1982,8 +2535,12 @@ function ProposalReviewModal({
   const activeProposal = proposal;
   const activeRecipe = recipe;
 
-  function review(status: "approved" | "ignored") {
-    const result = reviewProposal(activeProposal.id, status, ingredients);
+  async function review(status: "approved" | "ignored") {
+    const result = await reviewProposal(
+      activeProposal.id,
+      status,
+      ingredients
+    );
     if (!result.ok) {
       notify(result.message ?? "Could not review this change.");
       return;
@@ -2101,9 +2658,24 @@ function ProposalReviewModal({
 }
 
 function HouseholdScreen({ notify }: { notify: (message: string) => void }) {
-  const { state, switchMember, resetDemo } = useDemoStore();
+  const { state, setAiModel } = useAppStore();
   const [inviteEmail, setInviteEmail] = useState("");
   const [sending, setSending] = useState(false);
+  const [inviteUrl, setInviteUrl] = useState("");
+  const [models, setModels] = useState<AiModelOption[]>([]);
+  const [modelId, setModelId] = useState(state.household.aiModelId ?? "");
+
+  useEffect(() => {
+    void fetch("/api/ai/models")
+      .then(async (response) => {
+        if (!response.ok) return;
+        const result = (await response.json()) as {
+          models?: AiModelOption[];
+        };
+        setModels(result.models ?? []);
+      })
+      .catch(() => undefined);
+  }, []);
 
   async function invite() {
     if (!inviteEmail.includes("@")) {
@@ -2115,16 +2687,27 @@ function HouseholdScreen({ notify }: { notify: (message: string) => void }) {
       const response = await fetch("/api/household-invitations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: inviteEmail,
-          householdId: state.household.id
-        })
+        body: JSON.stringify({ email: inviteEmail })
       });
-      if (!response.ok) throw new Error();
-      notify(`Invitation prepared for ${inviteEmail}.`);
+      const result = (await response.json()) as {
+        inviteUrl?: string;
+        emailSent?: boolean;
+        error?: string;
+      };
+      if (!response.ok || !result.inviteUrl) {
+        throw new Error(result.error ?? "Invitation failed.");
+      }
+      setInviteUrl(result.inviteUrl);
+      notify(
+        result.emailSent
+          ? `Invitation emailed to ${inviteEmail}.`
+          : `Invitation link prepared for ${inviteEmail}.`
+      );
       setInviteEmail("");
-    } catch {
-      notify("Could not create the invitation.");
+    } catch (error) {
+      notify(
+        error instanceof Error ? error.message : "Could not create the invitation."
+      );
     } finally {
       setSending(false);
     }
@@ -2149,7 +2732,7 @@ function HouseholdScreen({ notify }: { notify: (message: string) => void }) {
           <h3>{state.household.name}</h3>
           <p>
             Default plan: {state.household.defaultServings} servings · Week
-            starts Sunday
+            starts {state.household.weekStartsOn === 1 ? "Monday" : "Sunday"}
           </p>
           {state.members.map((member) => (
             <div className="member-row" key={member.id}>
@@ -2163,17 +2746,7 @@ function HouseholdScreen({ notify }: { notify: (message: string) => void }) {
               </div>
               {member.id === state.currentMemberId ? (
                 <span className="cooked-badge">You are here</span>
-              ) : (
-                <button
-                  className="secondary-button"
-                  onClick={() => {
-                    switchMember(member.id);
-                    notify(`Demo identity switched to ${member.displayName}.`);
-                  }}
-                >
-                  Switch demo
-                </button>
-              )}
+              ) : null}
             </div>
           ))}
         </section>
@@ -2200,26 +2773,77 @@ function HouseholdScreen({ notify }: { notify: (message: string) => void }) {
               {sending ? <LoaderCircle className="spin" size={16} /> : "Invite"}
             </button>
           </div>
+          {inviteUrl ? (
+            <div className="form-grid">
+              <label>
+                Copyable invitation link
+                <input value={inviteUrl} readOnly />
+              </label>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard.writeText(inviteUrl);
+                  notify("Invitation link copied.");
+                }}
+              >
+                Copy invitation link
+              </button>
+            </div>
+          ) : null}
         </section>
 
         <section className="settings-card card">
           <Settings size={23} color="#315c4a" />
-          <h3>Demo workspace</h3>
+          <h3>Recipe import model</h3>
           <p>
-            This browser-only workspace lets every MVP workflow run before
-            Supabase credentials are connected.
+            Choose the household default. You can temporarily override it when
+            importing an individual recipe.
           </p>
-          <a className="secondary-button settings-link" href="/auth">
-            Open account sign-in
-          </a>
+          <label>
+            OpenRouter model
+            <input
+              list="household-openrouter-models"
+              value={modelId}
+              onChange={(event) => setModelId(event.target.value)}
+              placeholder="provider/model"
+            />
+            <datalist id="household-openrouter-models">
+              {models.map((model) => (
+                <option value={model.id} key={model.id}>
+                  {model.name}
+                </option>
+              ))}
+            </datalist>
+          </label>
           <button
-            className="danger-button"
+            className="secondary-button"
             onClick={() => {
-              resetDemo();
-              notify("Demo data reset to the starter household.");
+              setAiModel(modelId);
+              notify("Household OpenRouter model updated.");
             }}
           >
-            <RotateCcw size={16} /> Reset demo data
+            Save model
+          </button>
+        </section>
+
+        <section className="settings-card card">
+          <Settings size={23} color="#315c4a" />
+          <h3>Your account</h3>
+          <p>
+            Your account is individual. Household recipes, pantry, plans, and
+            shopping lists are shared with the members above.
+          </p>
+          <button
+            className="danger-button"
+            onClick={async () => {
+              const supabase = createClient();
+              await supabase?.auth.signOut();
+              await clearOfflineShoppingData();
+              window.location.href = "/auth";
+            }}
+          >
+            <LogOut size={16} /> Sign out
           </button>
         </section>
 

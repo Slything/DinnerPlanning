@@ -3,6 +3,12 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { hasSupabaseAdminConfig, hasSupabaseConfig } from "@/lib/supabase/config";
 
+export interface AuthenticatedUser {
+  id: string;
+  email: string;
+  displayName: string;
+}
+
 export async function createServerSupabaseClient() {
   if (!hasSupabaseConfig()) return null;
   const cookieStore = await cookies();
@@ -45,9 +51,21 @@ export function createAdminSupabaseClient() {
 export async function requireUser() {
   const supabase = await createServerSupabaseClient();
   if (!supabase) return { supabase: null, user: null };
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
+  const { data, error } = await supabase.auth.getClaims();
+  const claims = data?.claims;
+  if (error || !claims?.sub) return { supabase, user: null };
+  const metadata =
+    claims.user_metadata && typeof claims.user_metadata === "object"
+      ? (claims.user_metadata as Record<string, unknown>)
+      : {};
+  const email = typeof claims.email === "string" ? claims.email : "";
+  const user: AuthenticatedUser = {
+    id: String(claims.sub),
+    email,
+    displayName:
+      typeof metadata.display_name === "string" && metadata.display_name
+        ? metadata.display_name
+        : email.split("@")[0] || "Household member"
+  };
   return { supabase, user };
 }
-

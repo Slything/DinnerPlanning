@@ -6,28 +6,32 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-test("plans a dinner and opens the pantry review", async ({ page }) => {
+test("protects the application behind Dinner Made Easy sign in", async ({
+  page
+}) => {
   await page.goto("/");
+  await expect(page).toHaveURL(/\/auth/);
+  await expect(page.getByText("Dinner Made Easy", { exact: true })).toBeVisible();
   await expect(
-    page.getByRole("heading", { name: "This week", exact: true })
+    page.getByRole("heading", { name: "Welcome back" })
   ).toBeVisible();
-  await page.getByRole("button", { name: "Pantry" }).click();
-  await expect(page.getByRole("heading", { name: "Pantry" })).toBeVisible();
-  await page.getByRole("button", { name: "Shop" }).click();
   await expect(
-    page.getByRole("heading", { name: "Pantry check" })
+    page.locator("form").getByRole("button", { name: "Sign in" })
   ).toBeVisible();
 });
 
-test("opens cooking feedback from a planned meal", async ({ page }) => {
-  await page.goto("/");
-  await page
-    .getByRole("button", { name: /Mark Smoky Chicken Tacos cooked/i })
-    .click();
+test("shows account creation and password recovery on mobile", async ({
+  page
+}) => {
+  await page.goto("/auth");
+  await page.getByRole("button", { name: "New account" }).click();
   await expect(
-    page.getByRole("heading", { name: /How did Smoky Chicken Tacos go/i })
+    page.getByRole("heading", { name: "Create your account" })
   ).toBeVisible();
-  const intentControl = page.locator(".adjustment-builder .segmented-control");
-  await expect(intentControl.getByText("Actually used")).toBeVisible();
-  await expect(intentControl.getByText("Change next time")).toBeVisible();
+  await expect(page.getByLabel("Your name")).toBeVisible();
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await page.getByRole("link", { name: "Forgot your password?" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Reset your password" })
+  ).toBeVisible();
 });

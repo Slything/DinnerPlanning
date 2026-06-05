@@ -1,13 +1,13 @@
-# Gather & Graze
+# Dinner Made Easy
 
-A mobile-first dinner planning PWA for shared households. The app keeps a
-recipe library, plans weekly dinners, learns from cooking feedback, tracks
-pantry stock, and generates pantry-aware shopping lists.
+Dinner Made Easy is a mobile-first household dinner planning PWA. Individual
+accounts share recipes, weekly plans, pantry stock, cooking history, and a
+pantry-aware shopping list through one Supabase household.
 
 ## Local development
 
-The repository includes a project-local Node.js toolchain under `.tools` when
-installed by Codex. Add it to the front of your `PATH`, then install and run:
+This repository expects Node.js 24 or newer. A project-local toolchain may be
+available under `.tools`:
 
 ```bash
 export PATH="$PWD/.tools/node-v24.16.0-darwin-arm64/bin:$PATH"
@@ -15,26 +15,46 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:3000`. Without Supabase credentials the app starts in a
-fully interactive local demo mode and saves state in the browser.
+Open `http://localhost:3000`. There is no demo mode; Supabase must be
+configured before the protected application can be used.
 
 ## Environment
 
-Copy `.env.example` to `.env.local` and add credentials to enable the included
-cloud authentication, invitation, private-upload, and AI-import routes. The
-interactive workspace defaults to local demo persistence until it is connected
-to a deployed Supabase project.
+Create `.env.local` from `.env.example`:
 
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
-OPENAI_API_KEY=
-OPENAI_RECIPE_MODEL=gpt-5.4-mini
+OPENROUTER_API_KEY=
+OPENROUTER_DEFAULT_MODEL=
+NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
-Apply the SQL migrations in `supabase/migrations` to a Supabase project before
-enabling cloud mode.
+`SUPABASE_SERVICE_ROLE_KEY` and `OPENROUTER_API_KEY` are server-only. Never
+prefix either with `NEXT_PUBLIC_`.
+
+## Supabase setup
+
+1. Create a Supabase project.
+2. Apply every SQL file in `supabase/migrations` in numeric order.
+3. Add local and deployed `/auth/callback` URLs to the Auth redirect allow
+   list.
+4. Configure Auth email delivery and confirmation settings.
+5. Add the environment values to `.env.local` and Vercel.
+
+New users confirm their email, then create a household or accept a seven-day,
+email-bound invitation. Production households start empty.
+
+## OpenRouter
+
+The importer loads OpenRouter's model catalog through `/api/ai/models`. Recipe
+imports require structured-output support, and screenshot imports additionally
+require image input. A household can save a default model while an individual
+import can temporarily use another compatible model ID.
+
+AI output is always returned as an editable draft and is never saved without
+human review.
 
 ## Verification
 
@@ -43,4 +63,8 @@ npm run lint
 npm run typecheck
 npm test
 npm run build
+npm run test:e2e
 ```
+
+Live invitation, email, Realtime, and AI verification additionally requires a
+configured Supabase project and OpenRouter key.

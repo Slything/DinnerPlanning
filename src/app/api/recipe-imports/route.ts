@@ -1,95 +1,75 @@
-import OpenAI from "openai";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import type { RecipeDraft } from "@/lib/domain/types";
 import {
   canonicalizeIngredient,
-  inferAisle,
-  normalizeUnit,
-  parseQuantity
+  normalizeUnit
 } from "@/lib/domain/quantities";
 import {
-  htmlToPlainText,
   extractRecipeJsonLd,
+  htmlToPlainText,
   safeFetchRecipePage
 } from "@/lib/import/url-security";
 import {
   importedRecipeJsonSchema,
-  importedRecipeSchema
 } from "@/lib/import/recipe-schema";
-import type { RecipeDraft } from "@/lib/domain/types";
+import { parseOpenRouterRecipeContent } from "@/lib/openrouter/extraction";
+import { requireCompatibleModel } from "@/lib/openrouter/models";
+import { requireUser } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
 const requestSchema = z.object({
   url: z.string().url().optional(),
   text: z.string().max(60_000).optional().default(""),
-  images: z.array(z.string().max(8_000_000)).max(4).optional().default([])
+  images: z.array(z.string().max(8_000_000)).max(4).optional().default([]),
+  modelId: z.string().trim().max(200).optional()
 });
 
-function fallbackDraft(text: string, sourceUrl?: string): RecipeDraft {
-  const lines = text
-    .split(/\n+/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const ingredientPattern =
-    /^(\d+(?:\s+\d+\/\d+|\/\d+)?|[½⅓⅔¼¾⅛⅜⅝⅞])?\s*([a-zA-Z]+)?\s+(.+)$/;
-  const ingredients = lines
-    .filter(
-      (line) =>
-        /\d|[½⅓⅔¼¾⅛⅜⅝⅞]/.test(line) &&
-        !/^[1-9]\s*[.)-]\s+/.test(line)
-    )
-    .slice(0, 20)
-    .map((line, index) => {
-      const match = line.match(ingredientPattern);
-      const name = match?.[3]?.replace(/^of\s+/i, "") ?? line;
-      const unit = match?.[2] ?? "count";
-      const normalized = normalizeUnit(unit);
-      return {
-        id: `imported-${index}`,
-        name,
-        canonicalName: canonicalizeIngredient(name),
-        quantity: parseQuantity(match?.[1] ?? null),
-        unit,
-        dimension: normalized.dimension,
-        preparation: "",
-        aisle: inferAisle(name)
-      };
-    });
-  return {
-    title: lines[0]?.slice(0, 90) || "Imported recipe",
-    description: "",
-    sourceUrl,
-    yield: 4,
-    prepMinutes: 0,
-    cookMinutes: 0,
-    tags: [],
-    ingredients:
-      ingredients.length > 0
-        ? ingredients
-        : [
-            {
-              id: "imported-placeholder",
-              name: "Review and add ingredients",
-              canonicalName: "review and add ingredients",
-              quantity: null,
-              unit: "count",
-              dimension: "count",
-              aisle: "Other"
-            }
-          ],
-    instructions: lines.filter((line) => /^[1-9][.)]/.test(line)).slice(0, 20),
-    warnings: [
-      "AI importing is not configured, so this draft was parsed locally.",
-      "Review ingredient quantities and instructions before saving."
-    ],
-    confidence: "low"
+interface OpenRouterResponse {
+  choices?: Array<{
+    message?: {
+      content?: string;
+    };
+  }>;
+  error?: {
+    message?: string;
   };
 }
 
 export async function POST(request: Request) {
   try {
+    const { supabase, user } = await requireUser();
+    if (!supabase || !user) {
+      return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+    }
+    if (!process.env.OPENROUTER_API_KEY) {
+      return NextResponse.json(
+        { error: "OPENROUTER_API_KEY is not configured." },
+        { status: 503 }
+      );
+    }
     const parsed = requestSchema.parse(await request.json());
+    const { data: membership, error: membershipError } = await supabase
+      .from("household_members")
+      .select("households(ai_model_id)")
+      .eq("user_id", user.id)
+      .single();
+    if (membershipError) throw membershipError;
+    const householdRelation = Array.isArray(membership.households)
+      ? membership.households[0]
+      : membership.households;
+    const modelId =
+      parsed.modelId ||
+      householdRelation?.ai_model_id ||
+      process.env.OPENROUTER_DEFAULT_MODEL;
+    if (!modelId) {
+      throw new Error(
+        "Choose an OpenRouter model or configure OPENROUTER_DEFAULT_MODEL."
+      );
+    }
+    await requireCompatibleModel(modelId, parsed.images.length > 0);
+
     let pageText = "";
     let structuredData: unknown[] = [];
     if (parsed.url) {
@@ -103,7 +83,6 @@ export async function POST(request: Request) {
         }`;
       }
     }
-
     const combinedText = [
       parsed.text,
       structuredData.length
@@ -113,56 +92,76 @@ export async function POST(request: Request) {
     ]
       .filter(Boolean)
       .join("\n\n");
-
-    if (!process.env.OPENAI_API_KEY) {
-      return NextResponse.json(fallbackDraft(combinedText, parsed.url));
+    if (!combinedText && parsed.images.length === 0) {
+      throw new Error("Paste a recipe, add a link, or attach a screenshot.");
     }
 
-    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    const content: Array<
-      | { type: "input_text"; text: string }
-      | { type: "input_image"; image_url: string; detail: "high" }
-    > = [
+    const content: Array<Record<string, unknown>> = [
       {
-        type: "input_text",
-        text: `Extract one household recipe from the supplied material.
+        type: "text",
+        text: `Extract exactly one household recipe from the supplied material.
 Never invent a precise quantity. Use null and add a warning when an amount is
-unclear. Normalize common units but do not convert volume to weight. Keep
-instructions concise and ordered. The user must review the result.
+unclear. Normalize common units without converting volume to weight. Keep
+instructions concise and ordered. The user will review every field.
 
 Source URL: ${parsed.url ?? "not supplied"}
 
-${combinedText || "No readable text was supplied; use the images."}`
+${combinedText || "Use the attached screenshots."}`
       },
       ...parsed.images.map((image) => ({
-        type: "input_image" as const,
-        image_url: image,
-        detail: "high" as const
+        type: "image_url",
+        image_url: { url: image }
       }))
     ];
-    const response = await client.responses.create({
-      model: process.env.OPENAI_RECIPE_MODEL ?? "gpt-5.4-mini",
-      input: [{ role: "user", content }],
-      text: {
-        format: {
-          type: "json_schema",
-          name: "recipe_draft",
-          strict: true,
-          schema: importedRecipeJsonSchema
-        }
+    const appUrl =
+      process.env.NEXT_PUBLIC_APP_URL ?? new URL(request.url).origin;
+    const response = await fetch(
+      "https://openrouter.ai/api/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": appUrl,
+          "X-OpenRouter-Title": "Dinner Made Easy"
+        },
+        body: JSON.stringify({
+          model: modelId,
+          messages: [{ role: "user", content }],
+          response_format: {
+            type: "json_schema",
+            json_schema: {
+              name: "recipe_draft",
+              strict: true,
+              schema: importedRecipeJsonSchema
+            }
+          },
+          provider: {
+            require_parameters: true,
+            data_collection: "deny"
+          },
+          plugins: [{ id: "response-healing" }]
+        })
       }
-    });
-    const extracted = importedRecipeSchema.parse(
-      JSON.parse(response.output_text)
     );
+    const responsePayload = (await response.json()) as OpenRouterResponse;
+    if (!response.ok) {
+      throw new Error(
+        responsePayload.error?.message ??
+          `OpenRouter request failed (${response.status}).`
+      );
+    }
+    const output = responsePayload.choices?.[0]?.message?.content;
+    if (!output) throw new Error("OpenRouter returned an empty recipe.");
+    const extracted = parseOpenRouterRecipeContent(output);
     const draft: RecipeDraft = {
       ...extracted,
       sourceUrl: parsed.url,
       sourceCreator: extracted.sourceCreator || undefined,
-      ingredients: extracted.ingredients.map((ingredient, index) => {
+      ingredients: extracted.ingredients.map((ingredient) => {
         const normalized = normalizeUnit(ingredient.unit);
         return {
-          id: `imported-${index}-${crypto.randomUUID()}`,
+          id: crypto.randomUUID(),
           name: ingredient.name,
           canonicalName: canonicalizeIngredient(ingredient.name),
           quantity: ingredient.quantity,

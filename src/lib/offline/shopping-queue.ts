@@ -1,6 +1,6 @@
 "use client";
 
-import { openDB } from "idb";
+import { deleteDB, openDB } from "idb";
 import type { ShoppingList } from "@/lib/domain/types";
 
 export interface OfflineShoppingMutation {
@@ -11,7 +11,7 @@ export interface OfflineShoppingMutation {
   clientTimestamp: string;
 }
 
-const DB_NAME = "gather-and-graze";
+const DB_NAME = "dinner-made-easy";
 const DB_VERSION = 1;
 
 async function database() {
@@ -76,3 +76,14 @@ export async function syncShoppingMutations() {
   return { applied: result.applied.length };
 }
 
+export async function clearOfflineShoppingData() {
+  await deleteDB(DB_NAME);
+  if ("caches" in window) {
+    const keys = await caches.keys();
+    await Promise.all(
+      keys
+        .filter((key) => key.startsWith("dinner-made-easy"))
+        .map((key) => caches.delete(key))
+    );
+  }
+}

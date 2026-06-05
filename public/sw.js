@@ -1,4 +1,4 @@
-const CACHE_NAME = "gather-graze-v1";
+const CACHE_NAME = "dinner-made-easy-v1";
 const APP_SHELL = ["/", "/icon.svg", "/icon-maskable.svg"];
 
 self.addEventListener("install", (event) => {
@@ -36,4 +36,3 @@ self.addEventListener("fetch", (event) => {
       .catch(() => caches.match(event.request).then((cached) => cached || caches.match("/")))
   );
 });
-

@@ -1,8 +1,8 @@
 "use client";
 
-import { ArrowLeft, LoaderCircle, Mail, Utensils } from "lucide-react";
+import { LoaderCircle, Mail, Utensils } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 export default function AuthPage() {
@@ -13,13 +13,22 @@ export default function AuthPage() {
   const [displayName, setDisplayName] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [nextPath, setNextPath] = useState("/");
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const next = params.get("next");
+    const invitedEmail = params.get("email");
+    const suppliedMessage = params.get("message");
+    if (next?.startsWith("/") && !next.startsWith("//")) setNextPath(next);
+    if (invitedEmail) setEmail(invitedEmail);
+    if (suppliedMessage) setMessage(suppliedMessage);
+  }, []);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (!supabase) {
-      setMessage(
-        "Supabase is not configured yet. The main app is available in local demo mode."
-      );
+      setMessage("Dinner Made Easy is not connected to Supabase yet.");
       return;
     }
     setLoading(true);
@@ -30,7 +39,7 @@ export default function AuthPage() {
         password,
         options: {
           data: { display_name: displayName },
-          emailRedirectTo: `${window.location.origin}/auth/callback`
+          emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`
         }
       });
       setMessage(
@@ -44,19 +53,16 @@ export default function AuthPage() {
         password
       });
       if (error) setMessage(error.message);
-      else window.location.href = "/";
+      else window.location.href = nextPath;
     }
     setLoading(false);
   }
 
   return (
     <main className="auth-shell">
-      <Link href="/" className="auth-back">
-        <ArrowLeft size={16} /> Back to demo
-      </Link>
       <section className="auth-card card">
-        <div className="brand-mark auth-mark">G</div>
-        <p className="eyebrow">Gather &amp; Graze</p>
+        <div className="brand-mark auth-mark">D</div>
+        <p className="eyebrow">Dinner Made Easy</p>
         <h1>{mode === "signin" ? "Welcome back" : "Create your account"}</h1>
         <p>
           Each person signs in separately. Recipes, plans, pantry, and shopping
@@ -124,9 +130,13 @@ export default function AuthPage() {
             )}
             {mode === "signin" ? "Sign in" : "Create account"}
           </button>
+          {mode === "signin" ? (
+            <Link href="/auth/forgot-password" className="auth-inline-link">
+              Forgot your password?
+            </Link>
+          ) : null}
         </form>
       </section>
     </main>
   );
 }
-

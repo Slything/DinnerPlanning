@@ -1,16 +1,15 @@
 import type { Metadata, Viewport } from "next";
 import "@/app/globals.css";
-import { DemoStoreProvider } from "@/lib/demo/store";
 import { ServiceWorkerRegistration } from "@/components/service-worker-registration";
 
 export const metadata: Metadata = {
-  title: "Gather & Graze",
+  title: "Dinner Made Easy",
   description: "Plan dinner together, shop once, and make every recipe better.",
-  applicationName: "Gather & Graze",
+  applicationName: "Dinner Made Easy",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Gather & Graze"
+    title: "Dinner Made Easy"
   },
   formatDetection: {
     telephone: false
@@ -37,12 +36,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <DemoStoreProvider>
-          {children}
-          <ServiceWorkerRegistration />
-        </DemoStoreProvider>
+        {children}
+        <ServiceWorkerRegistration />
       </body>
     </html>
   );
 }
-

@@ -1,25 +1,31 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
-import type { PantryItem, Recipe, WeeklyPlan } from "@/lib/domain/types";
 import { buildPantryReview } from "@/lib/domain/shopping";
+import { loadAppState } from "@/lib/supabase/app-state";
+import { requireUser } from "@/lib/supabase/server";
 
-const schema = z.object({
-  plan: z.custom<WeeklyPlan>(),
-  recipes: z.array(z.custom<Recipe>()),
-  pantry: z.array(z.custom<PantryItem>())
-});
-
-export async function POST(request: Request) {
+export async function POST() {
   try {
-    const input = schema.parse(await request.json());
+    const { supabase, user } = await requireUser();
+    if (!supabase || !user) {
+      return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+    }
+    const state = await loadAppState(supabase, user);
+    if (!state) {
+      return NextResponse.json(
+        { error: "Household membership required." },
+        { status: 403 }
+      );
+    }
     return NextResponse.json(
-      buildPantryReview(input.plan, input.recipes, input.pantry)
+      buildPantryReview(state.weeklyPlan, state.recipes, state.pantry)
     );
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Invalid pantry review." },
+      {
+        error:
+          error instanceof Error ? error.message : "Invalid pantry review."
+      },
       { status: 400 }
     );
   }
 }
-

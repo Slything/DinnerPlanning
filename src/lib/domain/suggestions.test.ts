@@ -12,6 +12,7 @@ function recipe(id: string, favorite = false): Recipe {
     cookMinutes: 0,
     tags: [],
     favorite,
+    visibility: "private",
     currentVersion: 1,
     createdAt: "2026-01-01T00:00:00.000Z",
     versions: []
@@ -68,4 +69,3 @@ describe("recipe suggestions", () => {
     expect(ranked.map((item) => item.recipe.id)).toEqual(["free"]);
   });
 });
-
