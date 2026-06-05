@@ -14,20 +14,23 @@ export default async function InvitationPage({
   const { token } = await params;
   const admin = createAdminSupabaseClient();
   const { user } = await requireUser();
-  const { data: invitation } = admin
+  const invitationResult = admin
     ? await admin
         .from("household_invitations")
         .select("email,expires_at,accepted_at,households(name)")
         .eq("token", token)
         .maybeSingle()
-    : { data: null };
+    : { data: null, error: new Error("Supabase admin access is not configured.") };
+  const invitation = invitationResult.data;
+  const lookupUnavailable = Boolean(invitationResult.error);
   const household = Array.isArray(invitation?.households)
     ? invitation.households[0]
     : invitation?.households;
   const expired =
-    !invitation ||
-    Boolean(invitation.accepted_at);
+    !lookupUnavailable &&
+    (!invitation || Boolean(invitation.accepted_at));
   const next = `/invite/${token}`;
+  const invitationEmail = invitation?.email ?? "the invited email address";
   const authHref = `/auth?next=${encodeURIComponent(next)}${
     invitation?.email
       ? `&email=${encodeURIComponent(invitation.email)}`
@@ -44,13 +47,20 @@ export default async function InvitationPage({
         <h1>
           {expired
             ? "This invitation is no longer available"
+            : lookupUnavailable
+              ? "Accept household invitation"
             : `Join ${household?.name ?? "the household"}`}
         </h1>
         {expired ? (
           <p>The link may have expired after seven days or already been used.</p>
+        ) : lookupUnavailable ? (
+          <p>
+            Sign in or create an account with the email that received this link,
+            then accept the household invitation.
+          </p>
         ) : (
           <p>
-            This single-use invitation is reserved for {invitation.email}.
+            This single-use invitation is reserved for {invitationEmail}.
             Sign in with that exact address to accept it.
           </p>
         )}

@@ -1535,6 +1535,8 @@ function RecipeDetailModal({
               const result = (await response.json()) as {
                 shareId?: string;
                 inviteUrl?: string;
+                emailSent?: boolean;
+                emailError?: string;
                 error?: string;
               };
               if (response.ok && result.inviteUrl) {
@@ -1550,7 +1552,13 @@ function RecipeDetailModal({
                     ...current
                   ]);
                 }
-                notify("Private recipe invitation created.");
+                notify(
+                  result.emailSent
+                    ? "Private recipe invitation emailed."
+                    : result.emailError
+                      ? "Private recipe link prepared. Email could not be sent automatically."
+                      : "Private recipe invitation link prepared."
+                );
               } else {
                 notify(result.error ?? "The invitation could not be created.");
               }
@@ -2692,6 +2700,7 @@ function HouseholdScreen({ notify }: { notify: (message: string) => void }) {
       const result = (await response.json()) as {
         inviteUrl?: string;
         emailSent?: boolean;
+        emailError?: string;
         error?: string;
       };
       if (!response.ok || !result.inviteUrl) {
@@ -2701,6 +2710,8 @@ function HouseholdScreen({ notify }: { notify: (message: string) => void }) {
       notify(
         result.emailSent
           ? `Invitation emailed to ${inviteEmail}.`
+          : result.emailError
+            ? "Invitation link prepared. Email could not be sent automatically."
           : `Invitation link prepared for ${inviteEmail}.`
       );
       setInviteEmail("");

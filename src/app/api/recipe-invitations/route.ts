@@ -37,11 +37,12 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const input = schema.parse(await request.json());
+    const normalizedEmail = input.email.toLowerCase();
     const { supabase, user } = await requireUser();
     const admin = createAdminSupabaseClient();
-    if (!supabase || !user || !admin) {
+    if (!supabase || !user) {
       return NextResponse.json(
-        { error: "Authentication and Supabase admin access are required." },
+        { error: "Authentication is required." },
         { status: 401 }
       );
     }
@@ -49,7 +50,7 @@ export async function POST(request: Request) {
       "create_private_recipe_share",
       {
         target_recipe: input.recipeId,
-        target_email: input.email
+        target_email: normalizedEmail
       }
     );
     if (error) throw error;
@@ -60,28 +61,38 @@ export async function POST(request: Request) {
     const inviteUrl = `${appUrl.replace(/\/$/, "")}/recipe-invite/${
       share.share_token
     }`;
-    const { data: users } = await admin.auth.admin.listUsers({
-      page: 1,
-      perPage: 1000
-    });
-    const accountExists = users.users.some(
-      (candidate) =>
-        candidate.email?.toLowerCase() === input.email.toLowerCase()
-    );
     let emailSent = false;
-    if (!accountExists) {
-      const { error: inviteError } =
-        await admin.auth.admin.inviteUserByEmail(input.email, {
-          redirectTo: inviteUrl
+    let emailError: string | undefined;
+    if (!admin) {
+      emailError = "Supabase admin access is not configured.";
+    } else {
+      const { data: users, error: userListError } =
+        await admin.auth.admin.listUsers({
+          page: 1,
+          perPage: 1000
         });
-      if (inviteError) throw inviteError;
-      emailSent = true;
+      if (userListError) {
+        emailError = userListError.message;
+      } else {
+        const accountExists = users.users.some(
+          (candidate) => candidate.email?.toLowerCase() === normalizedEmail
+        );
+        if (!accountExists) {
+          const { error: inviteError } =
+            await admin.auth.admin.inviteUserByEmail(normalizedEmail, {
+              redirectTo: inviteUrl
+            });
+          if (inviteError) emailError = inviteError.message;
+          else emailSent = true;
+        }
+      }
     }
     return NextResponse.json({
       shareId: share.share_id,
       expiresAt: share.expires_at,
       inviteUrl,
-      emailSent
+      emailSent,
+      emailError
     });
   } catch (error) {
     return NextResponse.json(
