@@ -1,6 +1,6 @@
-# Dinner Made Easy
+# Gather & Graze
 
-Dinner Made Easy is a mobile-first household dinner planning PWA. Individual
+Gather & Graze is a mobile-first household dinner planning PWA. Individual
 accounts share recipes, weekly plans, pantry stock, cooking history, and a
 pantry-aware shopping list through one Supabase household.
 

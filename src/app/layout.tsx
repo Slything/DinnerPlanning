@@ -3,13 +3,13 @@ import "@/app/globals.css";
 import { ServiceWorkerRegistration } from "@/components/service-worker-registration";
 
 export const metadata: Metadata = {
-  title: "Dinner Made Easy",
+  title: "Gather & Graze",
   description: "Plan dinner together, shop once, and make every recipe better.",
-  applicationName: "Dinner Made Easy",
+  applicationName: "Gather & Graze",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Dinner Made Easy"
+    title: "Gather & Graze"
   },
   formatDetection: {
     telephone: false

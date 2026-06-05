@@ -123,7 +123,7 @@ ${combinedText || "Use the attached screenshots."}`
           Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
           "Content-Type": "application/json",
           "HTTP-Referer": appUrl,
-          "X-OpenRouter-Title": "Dinner Made Easy"
+          "X-OpenRouter-Title": "Gather & Graze"
         },
         body: JSON.stringify({
           model: modelId,

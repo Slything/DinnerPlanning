@@ -40,7 +40,7 @@ export default async function InvitationPage({
         <div className="brand-mark auth-mark">
           {expired ? <Check size={24} /> : <Users size={24} />}
         </div>
-        <p className="eyebrow">Dinner Made Easy invitation</p>
+        <p className="eyebrow">Gather &amp; Graze invitation</p>
         <h1>
           {expired
             ? "This invitation is no longer available"

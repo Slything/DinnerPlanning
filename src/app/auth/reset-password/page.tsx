@@ -18,7 +18,7 @@ export default function ResetPasswordPage() {
     }
     const supabase = createClient();
     if (!supabase) {
-      setMessage("Dinner Made Easy is not connected to Supabase yet.");
+      setMessage("Gather & Graze is not connected to Supabase yet.");
       return;
     }
     setLoading(true);
@@ -34,8 +34,8 @@ export default function ResetPasswordPage() {
   return (
     <main className="auth-shell">
       <section className="auth-card card">
-        <div className="brand-mark auth-mark">D</div>
-        <p className="eyebrow">Dinner Made Easy</p>
+        <div className="brand-mark auth-mark">G</div>
+        <p className="eyebrow">Gather &amp; Graze</p>
         <h1>Choose a new password</h1>
         <form className="form-grid" onSubmit={submit}>
           <label>

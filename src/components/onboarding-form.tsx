@@ -45,8 +45,8 @@ export function OnboardingForm({ displayName }: { displayName: string }) {
   return (
     <main className="auth-shell">
       <section className="auth-card card onboarding-card">
-        <div className="brand-mark auth-mark">D</div>
-        <p className="eyebrow">Dinner Made Easy</p>
+        <div className="brand-mark auth-mark">G</div>
+        <p className="eyebrow">Gather &amp; Graze</p>
         <h1>Set up your household</h1>
         <p>
           Welcome, {displayName}. Create a new shared kitchen or join one from

@@ -25,7 +25,7 @@ export async function proxy(request: NextRequest) {
       url.pathname = "/auth";
       url.searchParams.set(
         "message",
-        "Connect Supabase before using Dinner Made Easy."
+        "Connect Supabase before using Gather & Graze."
       );
       return NextResponse.redirect(url);
     }

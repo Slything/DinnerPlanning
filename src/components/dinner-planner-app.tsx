@@ -133,7 +133,7 @@ export function DinnerPlannerApp() {
         <div className="brand">
           <div className="brand-mark">G</div>
           <div>
-            <div className="brand-wordmark">Dinner Made Easy</div>
+            <div className="brand-wordmark">Gather &amp; Graze</div>
             <p className="brand-subtitle">{state.household.name}</p>
           </div>
         </div>
@@ -1116,7 +1116,7 @@ function RecipeEditorModal({
               }
             >
               <option value="private">Private to this household</option>
-              <option value="public">Dinner Made Easy community</option>
+              <option value="public">Gather &amp; Graze community</option>
             </select>
           </label>
 
@@ -1486,7 +1486,7 @@ function RecipeDetailModal({
         <h3>Discovery</h3>
         <p>
           {recipe.visibility === "public"
-            ? "Signed-in Dinner Made Easy households can discover and copy this recipe."
+            ? "Signed-in Gather & Graze households can discover and copy this recipe."
             : "Only your household can see this recipe unless you share it directly."}
         </p>
         <button
@@ -1648,7 +1648,7 @@ function CommunityRecipeModal({
     <Modal
       open={open}
       title="Community recipes"
-      eyebrow="Dinner Made Easy"
+      eyebrow="Gather & Graze"
       onClose={onClose}
       wide
     >

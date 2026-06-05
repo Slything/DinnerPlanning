@@ -28,7 +28,7 @@ export default function AuthPage() {
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (!supabase) {
-      setMessage("Dinner Made Easy is not connected to Supabase yet.");
+      setMessage("Gather & Graze is not connected to Supabase yet.");
       return;
     }
     setLoading(true);
@@ -61,8 +61,8 @@ export default function AuthPage() {
   return (
     <main className="auth-shell">
       <section className="auth-card card">
-        <div className="brand-mark auth-mark">D</div>
-        <p className="eyebrow">Dinner Made Easy</p>
+        <div className="brand-mark auth-mark">G</div>
+        <p className="eyebrow">Gather &amp; Graze</p>
         <h1>{mode === "signin" ? "Welcome back" : "Create your account"}</h1>
         <p>
           Each person signs in separately. Recipes, plans, pantry, and shopping

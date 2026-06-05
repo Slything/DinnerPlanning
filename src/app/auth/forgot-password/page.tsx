@@ -14,7 +14,7 @@ export default function ForgotPasswordPage() {
     event.preventDefault();
     const supabase = createClient();
     if (!supabase) {
-      setMessage("Dinner Made Easy is not connected to Supabase yet.");
+      setMessage("Gather & Graze is not connected to Supabase yet.");
       return;
     }
     setLoading(true);
@@ -32,8 +32,8 @@ export default function ForgotPasswordPage() {
   return (
     <main className="auth-shell">
       <section className="auth-card card">
-        <div className="brand-mark auth-mark">D</div>
-        <p className="eyebrow">Dinner Made Easy</p>
+        <div className="brand-mark auth-mark">G</div>
+        <p className="eyebrow">Gather &amp; Graze</p>
         <h1>Reset your password</h1>
         <p>We will email a one-time link to the address on your account.</p>
         <form className="form-grid" onSubmit={submit}>

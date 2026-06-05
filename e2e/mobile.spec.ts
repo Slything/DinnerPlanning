@@ -6,12 +6,12 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-test("protects the application behind Dinner Made Easy sign in", async ({
+test("protects the application behind Gather & Graze sign in", async ({
   page
 }) => {
   await page.goto("/");
   await expect(page).toHaveURL(/\/auth/);
-  await expect(page.getByText("Dinner Made Easy", { exact: true })).toBeVisible();
+  await expect(page.getByText("Gather & Graze", { exact: true })).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "Welcome back" })
   ).toBeVisible();
