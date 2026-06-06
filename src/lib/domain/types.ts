@@ -30,6 +30,7 @@ export interface HouseholdMember {
   email: string;
   displayName: string;
   avatarColor: string;
+  avatarUrl?: string;
 }
 
 export interface IngredientAmount {

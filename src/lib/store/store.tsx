@@ -55,12 +55,14 @@ interface AppStore {
   scheduleSpecial: (date: string, kind: PlannedMeal["kind"]) => void;
   removeMeal: (mealId: string) => void;
   addRecipe: (recipe: NewRecipe) => Promise<boolean>;
+  removeRecipe: (recipeId: string) => Promise<boolean>;
   toggleFavorite: (recipeId: string) => void;
   upsertPantryItem: (input: PantryInput) => void;
   removePantryItem: (id: string) => void;
   generateList: () => void;
   toggleShoppingItem: (id: string) => void;
   addShoppingItem: (name: string) => void;
+  removeShoppingItem: (id: string) => void;
   markListStale: () => void;
   completeShopping: (itemIds: string[]) => void;
   cookMeal: (
@@ -78,6 +80,12 @@ interface AppStore {
     visibility: RecipeVisibility
   ) => void;
   setAiModel: (modelId: string) => void;
+  updateHousehold: (name: string) => Promise<boolean>;
+  updateMemberProfile: (input: {
+    displayName: string;
+    avatarColor: string;
+    avatarUrl?: string;
+  }) => Promise<boolean>;
   restoreRecipeVersion: (recipeId: string, version: number) => void;
 }
 
@@ -195,6 +203,9 @@ export function AppStoreProvider({
       async addRecipe(recipe) {
         return Boolean(await run("addRecipe", { recipe }));
       },
+      async removeRecipe(recipeId) {
+        return Boolean(await run("removeRecipe", { recipeId }));
+      },
       toggleFavorite(recipeId) {
         void run("toggleFavorite", { recipeId });
       },
@@ -274,6 +285,27 @@ export function AppStoreProvider({
           payload: item as unknown as Record<string, unknown>
         });
       },
+      removeShoppingItem(id) {
+        if (navigator.onLine) {
+          void run("removeShoppingItem", { id });
+          return;
+        }
+        setState((current) => ({
+          ...current,
+          shoppingList: current.shoppingList
+            ? {
+                ...current.shoppingList,
+                items: current.shoppingList.items.filter(
+                  (candidate) => candidate.id !== id
+                )
+              }
+            : null
+        }));
+        void queueShoppingMutation({
+          itemId: id,
+          operation: "delete"
+        });
+      },
       markListStale() {
         void run("markListStale", {});
       },
@@ -311,6 +343,14 @@ export function AppStoreProvider({
       },
       setAiModel(modelId) {
         void run("setAiModel", { modelId });
+      },
+      async updateHousehold(name) {
+        return Boolean(await run("updateHousehold", { name }));
+      },
+      async updateMemberProfile(input) {
+        return Boolean(
+          await run("updateMemberProfile", input as unknown as Record<string, unknown>)
+        );
       },
       restoreRecipeVersion(recipeId, version) {
         void run("restoreRecipeVersion", { recipeId, version });

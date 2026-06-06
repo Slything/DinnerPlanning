@@ -6,7 +6,7 @@ import type { ShoppingList } from "@/lib/domain/types";
 export interface OfflineShoppingMutation {
   id: string;
   itemId: string;
-  operation: "check" | "uncheck" | "add";
+  operation: "check" | "uncheck" | "add" | "delete";
   payload?: Record<string, unknown>;
   clientTimestamp: string;
 }

@@ -39,7 +39,7 @@ export async function POST(request: Request) {
     }
     const { data: membership, error: membershipError } = await supabase
       .from("household_members")
-      .select("household_id,households(week_starts_on)")
+      .select("household_id,households(name,week_starts_on)")
       .eq("user_id", user.id)
       .single();
     if (membershipError || !membership) {
@@ -51,10 +51,14 @@ export async function POST(request: Request) {
     const membershipRow = membership as unknown as {
       household_id: string;
       households:
-        | { week_starts_on: number }
-        | Array<{ week_starts_on: number }>;
+        | { name: string; week_starts_on: number }
+        | Array<{ name: string; week_starts_on: number }>;
     };
     const householdId = membershipRow.household_id;
+    const householdRelation = Array.isArray(membershipRow.households)
+      ? membershipRow.households[0]
+      : membershipRow.households;
+    const householdName = householdRelation?.name ?? "Household";
 
     if (action === "scheduleMeal") {
       const date = stringValue(payload.date);
@@ -62,9 +66,6 @@ export async function POST(request: Request) {
       if (!date || !["recipe", "leftovers", "dining-out"].includes(kind)) {
         throw new Error("A valid meal date and type are required.");
       }
-      const householdRelation = Array.isArray(membershipRow.households)
-        ? membershipRow.households[0]
-        : membershipRow.households;
       const weekStartsOn = householdRelation?.week_starts_on === 1 ? 1 : 0;
       const weekStart = format(
         startOfWeek(parseISO(date), { weekStartsOn }),
@@ -98,11 +99,15 @@ export async function POST(request: Request) {
     } else if (action === "addRecipe") {
       const recipe = payload.recipe as Record<string, unknown> | undefined;
       if (!recipe) throw new Error("Recipe data is required.");
+      const recipePayload: Record<string, unknown> = {
+        ...recipe,
+        sourceCreator: householdName
+      };
       const { data: recipeId, error } = await supabase.rpc("create_recipe_with_catalog", {
-        recipe_payload: recipe
+        recipe_payload: recipePayload
       });
       if (error) throw error;
-      if (recipe.visibility === "public") {
+      if (recipePayload.visibility === "public") {
         const { error: visibilityError } = await supabase.rpc(
           "set_recipe_visibility",
           {
@@ -112,6 +117,20 @@ export async function POST(request: Request) {
         );
         if (visibilityError) throw visibilityError;
       }
+    } else if (action === "removeRecipe") {
+      const recipeId = stringValue(payload.recipeId);
+      if (!recipeId) throw new Error("Choose a recipe to delete.");
+      const { error } = await supabase
+        .from("recipes")
+        .delete()
+        .eq("id", recipeId)
+        .eq("household_id", householdId);
+      if (error) throw error;
+      await supabase
+        .from("shopping_lists")
+        .update({ stale: true })
+        .eq("household_id", householdId)
+        .is("completed_at", null);
     } else if (action === "toggleFavorite") {
       const recipeId = stringValue(payload.recipeId);
       const { data: recipe, error: readError } = await supabase
@@ -234,6 +253,13 @@ export async function POST(request: Request) {
         sources: []
       });
       if (error) throw error;
+    } else if (action === "removeShoppingItem") {
+      const { error } = await supabase
+        .from("shopping_list_items")
+        .delete()
+        .eq("id", stringValue(payload.id))
+        .eq("household_id", householdId);
+      if (error) throw error;
     } else if (action === "markListStale") {
       const { error } = await supabase
         .from("shopping_lists")
@@ -308,6 +334,30 @@ export async function POST(request: Request) {
         .update({ ai_model_id: stringValue(payload.modelId) || null })
         .eq("id", householdId);
       if (error) throw error;
+    } else if (action === "updateHousehold") {
+      const name = stringValue(payload.name).trim();
+      if (!name) throw new Error("Household name is required.");
+      const { error } = await supabase
+        .from("households")
+        .update({ name })
+        .eq("id", householdId);
+      if (error) throw error;
+    } else if (action === "updateMemberProfile") {
+      const displayName = stringValue(payload.displayName).trim();
+      const avatarColor =
+        stringValue(payload.avatarColor).trim() || "#315c4a";
+      const avatarUrl = stringValue(payload.avatarUrl).trim();
+      if (!displayName) throw new Error("Display name is required.");
+      const { error } = await supabase
+        .from("household_members")
+        .update({
+          display_name: displayName,
+          avatar_color: avatarColor,
+          avatar_url: avatarUrl || null
+        })
+        .eq("household_id", householdId)
+        .eq("user_id", user.id);
+      if (error) throw error;
     } else if (action === "restoreRecipeVersion") {
       const { error } = await supabase.rpc("restore_recipe_version", {
         target_recipe: stringValue(payload.recipeId),
@@ -322,6 +372,7 @@ export async function POST(request: Request) {
       [
         "scheduleMeal",
         "removeMeal",
+        "removeRecipe",
         "upsertPantry",
         "removePantry",
         "cookMeal",

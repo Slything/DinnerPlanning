@@ -331,7 +331,8 @@ export async function loadAppState(
       householdId,
       email: text(member.email),
       displayName: text(member.display_name, "Household member"),
-      avatarColor: text(member.avatar_color, "#315c4a")
+      avatarColor: text(member.avatar_color, "#315c4a"),
+      avatarUrl: optionalText(member.avatar_url)
     })
   );
   const sessions = sessionRows.map(

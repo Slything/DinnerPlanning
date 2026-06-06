@@ -5,7 +5,7 @@ import { requireUser } from "@/lib/supabase/server";
 const mutationSchema = z.object({
   id: z.string(),
   itemId: z.string(),
-  operation: z.enum(["check", "uncheck", "add"]),
+  operation: z.enum(["check", "uncheck", "add", "delete"]),
   payload: z.record(z.string(), z.unknown()).optional(),
   clientTimestamp: z.string().datetime()
 });
@@ -48,6 +48,13 @@ export async function POST(request: Request) {
           },
           { onConflict: "client_mutation_id" }
         );
+        if (error) throw error;
+      } else if (mutation.operation === "delete") {
+        const { error } = await supabase
+          .from("shopping_list_items")
+          .delete()
+          .eq("id", mutation.itemId)
+          .eq("household_id", membership.household_id);
         if (error) throw error;
       } else {
         const { error } = await supabase

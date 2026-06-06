@@ -42,7 +42,6 @@ import type {
   IngredientAmount,
   PlannedMeal,
   Recipe,
-  RecipeSortMode,
   RecipeVisibility,
   SharedRecipeSnapshot
 } from "@/lib/domain/types";
@@ -90,7 +89,7 @@ const TAB_ITEMS: Array<{
   { value: "recipes", label: "Recipes", icon: BookOpen },
   { value: "pantry", label: "Pantry", icon: PackageCheck },
   { value: "shopping", label: "Shop", icon: ShoppingBasket },
-  { value: "settings", label: "Household", icon: Users }
+  { value: "settings", label: "Settings", icon: Users }
 ];
 
 function mealRecipe(meal: PlannedMeal | undefined, recipes: Recipe[]) {
@@ -160,11 +159,19 @@ export function DinnerPlannerApp() {
           </div>
         </div>
         <div className="header-actions">
-          <Avatar
-            name={currentMember.displayName}
-            color={currentMember.avatarColor}
-            small
-          />
+          <button
+            className="avatar-button"
+            type="button"
+            onClick={() => setTab("settings")}
+            aria-label="Open account settings"
+          >
+            <Avatar
+              name={currentMember.displayName}
+              color={currentMember.avatarColor}
+              imageUrl={currentMember.avatarUrl}
+              small
+            />
+          </button>
         </div>
       </header>
 
@@ -496,7 +503,6 @@ function MealPickerModal({
 function RecipesScreen({ notify }: { notify: (message: string) => void }) {
   const { state, toggleFavorite } = useAppStore();
   const [query, setQuery] = useState("");
-  const [sort, setSort] = useState<RecipeSortMode>("least-recent");
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [neverCookedOnly, setNeverCookedOnly] = useState(false);
   const [quickCookOnly, setQuickCookOnly] = useState(false);
@@ -512,7 +518,7 @@ function RecipesScreen({ notify }: { notify: (message: string) => void }) {
     state.cookingSessions,
     {
       query,
-      sort,
+      sort: "least-recent",
       favoritesOnly,
       neverCookedOnly,
       quickCookOnly
@@ -524,8 +530,7 @@ function RecipesScreen({ notify }: { notify: (message: string) => void }) {
       <div className="screen-header">
         <div>
           <p className="eyebrow">{state.recipes.length} household recipes</p>
-          <h1>Recipe box</h1>
-          <p>Every keeper, plus the little changes that made it yours.</p>
+          <h1>Recipe Book</h1>
         </div>
         <div className="header-actions">
           <button
@@ -559,7 +564,7 @@ function RecipesScreen({ notify }: { notify: (message: string) => void }) {
         </button>
       ) : null}
 
-      <div className="search-row">
+      <div className="search-row search-row-single">
         <div className="search-input-wrap">
           <Search size={18} />
           <input
@@ -568,15 +573,6 @@ function RecipesScreen({ notify }: { notify: (message: string) => void }) {
             placeholder="Search by recipe, ingredient, or tag"
           />
         </div>
-        <select
-          aria-label="Sort recipes"
-          value={sort}
-          onChange={(event) => setSort(event.target.value as RecipeSortMode)}
-        >
-          <option value="least-recent">Haven&apos;t eaten in a while</option>
-          <option value="newest">Newest</option>
-          <option value="alphabetical">A-Z</option>
-        </select>
       </div>
       <div className="filter-row">
         <button
@@ -703,7 +699,6 @@ function RecipeEditorModal({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
-  const [creator, setCreator] = useState("");
   const [yieldCount, setYieldCount] = useState("4");
   const [prepMinutes, setPrepMinutes] = useState("15");
   const [cookMinutes, setCookMinutes] = useState("30");
@@ -733,7 +728,6 @@ function RecipeEditorModal({
     setTitle("");
     setDescription("");
     setSourceUrl("");
-    setCreator("");
     setYieldCount("4");
     setPrepMinutes("15");
     setCookMinutes("30");
@@ -813,7 +807,6 @@ function RecipeEditorModal({
         title: string;
         description: string;
         sourceUrl?: string;
-        sourceCreator?: string;
         yield: number;
         prepMinutes: number;
         cookMinutes: number;
@@ -825,7 +818,6 @@ function RecipeEditorModal({
       setTitle(draft.title);
       setDescription(draft.description);
       setSourceUrl(draft.sourceUrl ?? sourceUrl);
-      setCreator(draft.sourceCreator ?? "");
       setYieldCount(String(draft.yield || 4));
       setPrepMinutes(String(draft.prepMinutes || 0));
       setCookMinutes(String(draft.cookMinutes || 0));
@@ -895,7 +887,7 @@ function RecipeEditorModal({
       title: title.trim(),
       description: description.trim(),
       sourceUrl: sourceUrl.trim() || undefined,
-      sourceCreator: creator.trim() || undefined,
+      sourceCreator: state.household.name,
       imageUrl: undefined,
       prepMinutes: Number(prepMinutes) || 0,
       cookMinutes: Number(cookMinutes) || 0,
@@ -925,7 +917,7 @@ function RecipeEditorModal({
     <Modal
       open={open}
       title="Add a recipe"
-      eyebrow="Recipe box"
+      eyebrow="Recipe Book"
       onClose={() => {
         reset();
         onClose();
@@ -1069,45 +1061,6 @@ function RecipeEditorModal({
               Quick Cook
             </label>
           </div>
-          <div className="form-two">
-            <label>
-              Source link
-              <input
-                value={sourceUrl}
-                onChange={(event) => setSourceUrl(event.target.value)}
-                placeholder="Optional"
-              />
-            </label>
-            <label>
-              Creator
-              <input
-                value={creator}
-                onChange={(event) => setCreator(event.target.value)}
-                placeholder="Optional"
-              />
-            </label>
-          </div>
-          <label>
-            Tags
-            <input
-              value={tags}
-              onChange={(event) => setTags(event.target.value)}
-              placeholder="quick, vegetarian, family favorite"
-            />
-          </label>
-          <label>
-            Who can discover this recipe?
-            <select
-              value={visibility}
-              onChange={(event) =>
-                setVisibility(event.target.value as RecipeVisibility)
-              }
-            >
-              <option value="private">Private to this household</option>
-              <option value="public">Gather &amp; Graze community</option>
-            </select>
-          </label>
-
           <div>
             <div className="subsection-header">
               <h3>Ingredients</h3>
@@ -1314,6 +1267,44 @@ function RecipeEditorModal({
             </div>
           </div>
 
+          <div className="recipe-extra-section">
+            <div className="subsection-header">
+              <h3>Sharing and source</h3>
+            </div>
+            <label>
+              Source link
+              <input
+                value={sourceUrl}
+                onChange={(event) => setSourceUrl(event.target.value)}
+                placeholder="Optional"
+              />
+            </label>
+            <label>
+              Tags
+              <input
+                value={tags}
+                onChange={(event) => setTags(event.target.value)}
+                placeholder="quick, vegetarian, family favorite"
+              />
+            </label>
+            <label>
+              Who can discover this recipe?
+              <select
+                value={visibility}
+                onChange={(event) =>
+                  setVisibility(event.target.value as RecipeVisibility)
+                }
+              >
+                <option value="private">Private to this household</option>
+                <option value="public">Gather &amp; Graze community</option>
+              </select>
+            </label>
+            <p className="field-note">
+              Published recipes use {state.household.name} as the creator.
+              You can rename the household in Settings.
+            </p>
+          </div>
+
           <div className="form-actions">
             <button
               className="secondary-button"
@@ -1348,6 +1339,7 @@ function RecipeDetailModal({
   const {
     state,
     refresh,
+    removeRecipe,
     restoreRecipeVersion
   } = useAppStore();
   const [shareOpen, setShareOpen] = useState(false);
@@ -1362,6 +1354,11 @@ function RecipeDetailModal({
   }
   const version = currentRecipeVersion(recipe);
   const imageUrl = realRecipeImage(recipe);
+  const originalSource =
+    recipe.sourceCreator &&
+    recipe.sourceCreator !== recipe.attributionHousehold
+      ? recipe.sourceCreator
+      : undefined;
   return (
     <Modal open title={recipe.title} eyebrow="Household recipe" onClose={onClose}>
       {imageUrl ? (
@@ -1391,7 +1388,7 @@ function RecipeDetailModal({
       {recipe.attributionHousehold ? (
         <p className="field-note">
           Shared by {recipe.attributionHousehold}
-          {recipe.sourceCreator ? ` · Original source: ${recipe.sourceCreator}` : ""}
+          {originalSource ? ` · Original source: ${originalSource}` : ""}
         </p>
       ) : null}
       <div className="subsection-header">
@@ -1490,6 +1487,20 @@ function RecipeDetailModal({
         </div>
       ) : null}
       <div className="form-actions">
+        <button
+          className="danger-button"
+          type="button"
+          onClick={async () => {
+            if (!window.confirm(`Delete ${recipe.title}?`)) return;
+            const deleted = await removeRecipe(recipe.id);
+            if (deleted) {
+              notify(`${recipe.title} deleted.`);
+              onClose();
+            }
+          }}
+        >
+          <Trash2 size={16} /> Delete
+        </button>
         <button
           className="secondary-button"
           type="button"
@@ -1994,6 +2005,7 @@ function ShoppingScreen({ notify }: { notify: (message: string) => void }) {
     generateList,
     toggleShoppingItem,
     addShoppingItem,
+    removeShoppingItem,
     upsertPantryItem
   } = useAppStore();
   const [manualName, setManualName] = useState("");
@@ -2189,16 +2201,23 @@ function ShoppingScreen({ notify }: { notify: (message: string) => void }) {
 
       <div className="list-stack">
         {shoppingItems.map((item) => (
-          <button
+          <article
             className={`shopping-row ${item.checked ? "checked" : ""}`}
-            type="button"
             key={item.id}
-            onClick={() => toggleShoppingItem(item.id)}
           >
-            <span className="shopping-check">
+            <button
+              className="shopping-check"
+              type="button"
+              onClick={() => toggleShoppingItem(item.id)}
+              aria-label={`${item.checked ? "Uncheck" : "Check"} ${item.name}`}
+            >
               {item.checked ? <Check size={16} /> : null}
-            </span>
-            <span className="row-main">
+            </button>
+            <button
+              className="row-main row-main-button"
+              type="button"
+              onClick={() => toggleShoppingItem(item.id)}
+            >
               <strong>{item.name}</strong>
               <span>
                 {item.quantity === null
@@ -2206,8 +2225,19 @@ function ShoppingScreen({ notify }: { notify: (message: string) => void }) {
                   : formatIngredientAmount(item)}
                 {item.manual ? " · added manually" : ""}
               </span>
-            </span>
-          </button>
+            </button>
+            <button
+              className="mini-button"
+              type="button"
+              aria-label={`Remove ${item.name}`}
+              onClick={() => {
+                removeShoppingItem(item.id);
+                notify(`${item.name} removed from the shopping list.`);
+              }}
+            >
+              <Trash2 size={14} />
+            </button>
+          </article>
         ))}
       </div>
 
@@ -2740,12 +2770,20 @@ function ProposalReviewModal({
 }
 
 function HouseholdScreen({ notify }: { notify: (message: string) => void }) {
-  const { state, setAiModel } = useAppStore();
-  const [inviteEmail, setInviteEmail] = useState("");
-  const [sending, setSending] = useState(false);
-  const [inviteUrl, setInviteUrl] = useState("");
+  const { state, setAiModel, updateMemberProfile } = useAppStore();
+  const currentMember =
+    state.members.find((member) => member.id === state.currentMemberId) ??
+    state.members[0];
+  const [householdOpen, setHouseholdOpen] = useState(false);
   const [models, setModels] = useState<AiModelOption[]>([]);
   const [modelId, setModelId] = useState(state.household.aiModelId ?? "");
+  const [displayName, setDisplayName] = useState(
+    currentMember?.displayName ?? ""
+  );
+  const [avatarUrl, setAvatarUrl] = useState(currentMember?.avatarUrl ?? "");
+  const [avatarColor, setAvatarColor] = useState(
+    currentMember?.avatarColor ?? "#315c4a"
+  );
 
   useEffect(() => {
     void fetch("/api/ai/models")
@@ -2759,122 +2797,108 @@ function HouseholdScreen({ notify }: { notify: (message: string) => void }) {
       .catch(() => undefined);
   }, []);
 
-  async function invite() {
-    if (!inviteEmail.includes("@")) {
-      notify("Enter the email address for the person you want to invite.");
-      return;
-    }
-    setSending(true);
-    try {
-      const response = await fetch("/api/household-invitations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: inviteEmail })
-      });
-      const result = (await response.json()) as {
-        inviteUrl?: string;
-        emailSent?: boolean;
-        emailError?: string;
-        error?: string;
-      };
-      if (!response.ok || !result.inviteUrl) {
-        throw new Error(result.error ?? "Invitation failed.");
-      }
-      setInviteUrl(result.inviteUrl);
-      notify(
-        result.emailSent
-          ? `Invitation emailed to ${inviteEmail}.`
-          : result.emailError
-            ? "Invitation link prepared. Email could not be sent automatically."
-          : `Invitation link prepared for ${inviteEmail}.`
-      );
-      setInviteEmail("");
-    } catch (error) {
-      notify(
-        error instanceof Error ? error.message : "Could not create the invitation."
-      );
-    } finally {
-      setSending(false);
-    }
-  }
+  useEffect(() => {
+    setModelId(state.household.aiModelId ?? "");
+  }, [state.household.aiModelId]);
+
+  useEffect(() => {
+    setDisplayName(currentMember?.displayName ?? "");
+    setAvatarUrl(currentMember?.avatarUrl ?? "");
+    setAvatarColor(currentMember?.avatarColor ?? "#315c4a");
+  }, [currentMember]);
 
   return (
     <>
       <div className="screen-header">
         <div>
-          <p className="eyebrow">Cook together</p>
-          <h1>Household</h1>
-          <p>
-            Individual accounts, one shared kitchen. Everyone here is an equal
-            editor.
-          </p>
+          <p className="eyebrow">Account and household</p>
+          <h1>Settings</h1>
         </div>
       </div>
 
       <div className="settings-grid">
         <section className="settings-card card">
-          <Home size={23} color="#315c4a" />
-          <h3>{state.household.name}</h3>
-          <p>
-            Week starts {state.household.weekStartsOn === 1 ? "Monday" : "Sunday"}
-          </p>
-          {state.members.map((member) => (
-            <div className="member-row" key={member.id}>
-              <Avatar
-                name={member.displayName}
-                color={member.avatarColor}
-              />
-              <div className="row-main">
-                <strong>{member.displayName}</strong>
-                <span>{member.email} · Equal editor</span>
-              </div>
-              {member.id === state.currentMemberId ? (
-                <span className="cooked-badge">You are here</span>
-              ) : null}
+          <div className="settings-card-header">
+            <Avatar
+              name={displayName || "You"}
+              color={avatarColor}
+              imageUrl={avatarUrl}
+            />
+            <div>
+              <h3>Your account</h3>
+              <p>Set the name and picture shown around the app.</p>
             </div>
-          ))}
+          </div>
+          <div className="form-grid compact-grid">
+            <label>
+              Display name
+              <input
+                value={displayName}
+                onChange={(event) => setDisplayName(event.target.value)}
+                placeholder="Your name"
+              />
+            </label>
+            <label>
+              Display picture URL
+              <input
+                type="url"
+                value={avatarUrl}
+                onChange={(event) => setAvatarUrl(event.target.value)}
+                placeholder="https://..."
+              />
+            </label>
+            <label>
+              Initials color
+              <input
+                type="color"
+                value={avatarColor}
+                onChange={(event) => setAvatarColor(event.target.value)}
+              />
+            </label>
+          </div>
+          <div className="form-actions">
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={async () => {
+                const saved = await updateMemberProfile({
+                  displayName,
+                  avatarColor,
+                  avatarUrl
+                });
+                if (saved) notify("Account settings saved.");
+              }}
+            >
+              Save account
+            </button>
+            <button
+              className="danger-button"
+              onClick={async () => {
+                const supabase = createClient();
+                await supabase?.auth.signOut();
+                await clearOfflineShoppingData();
+                window.location.href = "/auth";
+              }}
+            >
+              <LogOut size={16} /> Sign out
+            </button>
+          </div>
         </section>
 
         <section className="settings-card card">
-          <Users size={23} color="#315c4a" />
-          <h3>Invite someone</h3>
+          <Home size={23} color="#315c4a" />
+          <h3>Household settings</h3>
           <p>
-            Production invitations are single-use, expire after seven days,
-            and are tied to this household.
+            {state.household.name} is used as the creator name when your
+            household publishes recipes.
           </p>
-          <div className="invite-row">
-            <input
-              type="email"
-              value={inviteEmail}
-              onChange={(event) => setInviteEmail(event.target.value)}
-              placeholder="partner@example.com"
-            />
-            <button
-              className="primary-button"
-              onClick={invite}
-              disabled={sending}
-            >
-              {sending ? <LoaderCircle className="spin" size={16} /> : "Invite"}
-            </button>
-          </div>
-          {inviteUrl ? (
-            <div className="form-grid">
-              <label>
-                Copyable invitation link
-                <input value={inviteUrl} readOnly />
-              </label>
-              <button
-                className="secondary-button"
-                type="button"
-                onClick={() => {
-                  void navigator.clipboard.writeText(inviteUrl);
-                  notify("Invitation link copied.");
-                }}
-              >
-                Copy invitation link
-              </button>
-            </div>
-          ) : null}
+          <button
+            className="primary-button"
+            type="button"
+            onClick={() => setHouseholdOpen(true)}
+          >
+            <Users size={16} /> Review household
+          </button>
         </section>
 
         <section className="settings-card card">
@@ -2910,27 +2934,6 @@ function HouseholdScreen({ notify }: { notify: (message: string) => void }) {
             Save model
           </button>
         </section>
-
-        <section className="settings-card card">
-          <Settings size={23} color="#315c4a" />
-          <h3>Your account</h3>
-          <p>
-            Your account is individual. Household recipes, pantry, plans, and
-            shopping lists are shared with the members above.
-          </p>
-          <button
-            className="danger-button"
-            onClick={async () => {
-              const supabase = createClient();
-              await supabase?.auth.signOut();
-              await clearOfflineShoppingData();
-              window.location.href = "/auth";
-            }}
-          >
-            <LogOut size={16} /> Sign out
-          </button>
-        </section>
-
         <section className="settings-card card">
           <Apple size={23} color="#315c4a" />
           <h3>Install on iPhone</h3>
@@ -2945,6 +2948,173 @@ function HouseholdScreen({ notify }: { notify: (message: string) => void }) {
           </div>
         </section>
       </div>
+      <HouseholdSettingsModal
+        open={householdOpen}
+        onClose={() => setHouseholdOpen(false)}
+        notify={notify}
+      />
     </>
+  );
+}
+
+function HouseholdSettingsModal({
+  open,
+  onClose,
+  notify
+}: {
+  open: boolean;
+  onClose: () => void;
+  notify: (message: string) => void;
+}) {
+  const { state, updateHousehold } = useAppStore();
+  const [householdName, setHouseholdName] = useState(state.household.name);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [sending, setSending] = useState(false);
+  const [inviteUrl, setInviteUrl] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    setHouseholdName(state.household.name);
+  }, [open, state.household.name]);
+
+  async function invite() {
+    if (!inviteEmail.includes("@")) {
+      notify("Enter the email address for the person you want to invite.");
+      return;
+    }
+    setSending(true);
+    try {
+      const response = await fetch("/api/household-invitations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: inviteEmail })
+      });
+      const result = (await response.json()) as {
+        inviteUrl?: string;
+        emailSent?: boolean;
+        emailError?: string;
+        error?: string;
+      };
+      if (!response.ok || !result.inviteUrl) {
+        throw new Error(result.error ?? "Invitation failed.");
+      }
+      setInviteUrl(result.inviteUrl);
+      notify(
+        result.emailSent
+          ? `Invitation emailed to ${inviteEmail}.`
+          : result.emailError
+            ? "Invitation link prepared. Email could not be sent automatically."
+            : `Invitation link prepared for ${inviteEmail}.`
+      );
+      setInviteEmail("");
+    } catch (error) {
+      notify(
+        error instanceof Error ? error.message : "Could not create the invitation."
+      );
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <Modal
+      open={open}
+      title="Household settings"
+      eyebrow={state.household.name}
+      onClose={onClose}
+      wide
+    >
+      <div className="form-grid">
+        <section className="settings-card card">
+          <Home size={23} color="#315c4a" />
+          <h3>Household name</h3>
+          <p>
+            This is the creator name used when your household publishes a
+            recipe.
+          </p>
+          <div className="invite-row">
+            <input
+              value={householdName}
+              onChange={(event) => setHouseholdName(event.target.value)}
+              placeholder="Household name"
+            />
+            <button
+              className="primary-button"
+              type="button"
+              onClick={async () => {
+                const saved = await updateHousehold(householdName);
+                if (saved) notify("Household name updated.");
+              }}
+            >
+              Save
+            </button>
+          </div>
+        </section>
+
+        <section className="settings-card card">
+          <Users size={23} color="#315c4a" />
+          <h3>Members</h3>
+          <p>Everyone in the household can edit recipes, plans, pantry, and lists.</p>
+          {state.members.map((member) => (
+            <div className="member-row" key={member.id}>
+              <Avatar
+                name={member.displayName}
+                color={member.avatarColor}
+                imageUrl={member.avatarUrl}
+              />
+              <div className="row-main">
+                <strong>{member.displayName}</strong>
+                <span>{member.email} · Equal editor</span>
+              </div>
+              {member.id === state.currentMemberId ? (
+                <span className="cooked-badge">You are here</span>
+              ) : null}
+            </div>
+          ))}
+        </section>
+
+        <section className="settings-card card">
+          <Users size={23} color="#315c4a" />
+          <h3>Invite someone</h3>
+          <p>
+            Invitations are single-use, expire after seven days, and are tied to
+            this household.
+          </p>
+          <div className="invite-row">
+            <input
+              type="email"
+              value={inviteEmail}
+              onChange={(event) => setInviteEmail(event.target.value)}
+              placeholder="partner@example.com"
+            />
+            <button
+              className="primary-button"
+              onClick={invite}
+              disabled={sending}
+            >
+              {sending ? <LoaderCircle className="spin" size={16} /> : "Invite"}
+            </button>
+          </div>
+          {inviteUrl ? (
+            <div className="form-grid">
+              <label>
+                Copyable invitation link
+                <input value={inviteUrl} readOnly />
+              </label>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard.writeText(inviteUrl);
+                  notify("Invitation link copied.");
+                }}
+              >
+                Copy invitation link
+              </button>
+            </div>
+          ) : null}
+        </section>
+      </div>
+    </Modal>
   );
 }

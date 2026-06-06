@@ -90,20 +90,28 @@ export function SegmentedControl<T extends string>({
 export function Avatar({
   name,
   color,
+  imageUrl,
   small = false
 }: {
   name: string;
   color: string;
+  imageUrl?: string;
   small?: boolean;
 }) {
   return (
     <span
-      className={`avatar ${small ? "avatar-small" : ""}`}
+      className={`avatar ${small ? "avatar-small" : ""} ${
+        imageUrl ? "avatar-image" : ""
+      }`}
       style={{ background: color }}
       title={name}
     >
-      {name.slice(0, 1).toUpperCase()}
+      {imageUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={imageUrl} alt="" />
+      ) : (
+        name.slice(0, 1).toUpperCase()
+      )}
     </span>
   );
 }
-

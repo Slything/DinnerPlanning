@@ -128,6 +128,13 @@ h3,
   gap: 8px;
 }
 
+.avatar-button {
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+}
+
 .status-pill,
 .tag,
 .eyebrow {
@@ -469,6 +476,10 @@ h3,
   margin-bottom: 18px;
 }
 
+.search-row-single .search-input-wrap {
+  max-width: 720px;
+}
+
 .search-input-wrap {
   position: relative;
   flex: 1;
@@ -674,6 +685,14 @@ label {
   flex: 1;
 }
 
+.row-main-button {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+
 .row-main strong {
   display: block;
   overflow: hidden;
@@ -810,6 +829,24 @@ label {
   padding: 19px;
 }
 
+.settings-card-header {
+  display: flex;
+  gap: 13px;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.settings-card-header h3,
+.settings-card-header p {
+  margin: 0;
+}
+
+.settings-card-header p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .settings-card h3 {
   margin-bottom: 5px;
   font-size: 21px;
@@ -829,6 +866,7 @@ label {
 }
 
 .avatar {
+  overflow: hidden;
   display: inline-grid;
   width: 42px;
   height: 42px;
@@ -840,6 +878,16 @@ label {
   color: white;
   font-family: Georgia, serif;
   font-size: 17px;
+}
+
+.avatar-image {
+  background: var(--cream) !important;
+}
+
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .avatar-small {
@@ -950,6 +998,10 @@ label {
   border-top: 1px solid var(--line);
 }
 
+.form-actions > .danger-button:first-child {
+  margin-right: auto;
+}
+
 .segmented-control {
   display: grid;
   grid-auto-columns: 1fr;
@@ -994,6 +1046,13 @@ label {
   color: var(--muted);
   font-size: 11px;
   font-weight: 700;
+}
+
+.recipe-extra-section {
+  display: grid;
+  gap: 15px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
 }
 
 .instruction-editor-row {
