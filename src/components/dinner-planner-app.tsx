@@ -34,7 +34,7 @@ import {
   parseISO,
   startOfDay
 } from "date-fns";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   CookingAdjustment,
   AiModelOption,
@@ -81,15 +81,14 @@ import {
 type Tab = "week" | "recipes" | "pantry" | "shopping" | "settings";
 
 const TAB_ITEMS: Array<{
-  value: Tab;
+  value: Exclude<Tab, "settings">;
   label: string;
   icon: typeof CalendarDays;
 }> = [
   { value: "week", label: "Week", icon: CalendarDays },
   { value: "recipes", label: "Recipes", icon: BookOpen },
   { value: "pantry", label: "Pantry", icon: PackageCheck },
-  { value: "shopping", label: "Shop", icon: ShoppingBasket },
-  { value: "settings", label: "Settings", icon: Users }
+  { value: "shopping", label: "Shop", icon: ShoppingBasket }
 ];
 
 function mealRecipe(meal: PlannedMeal | undefined, recipes: Recipe[]) {
@@ -123,12 +122,28 @@ export function DinnerPlannerApp() {
   const { state, loaded, error } = useAppStore();
   const [tab, setTab] = useState<Tab>("week");
   const [toast, setToast] = useState<string | null>(null);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const profileMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!toast) return;
     const timer = window.setTimeout(() => setToast(null), 2800);
     return () => window.clearTimeout(timer);
   }, [toast]);
+
+  useEffect(() => {
+    if (!profileMenuOpen) return;
+    function closeOnOutsideClick(event: MouseEvent) {
+      if (
+        event.target instanceof Node &&
+        !profileMenuRef.current?.contains(event.target)
+      ) {
+        setProfileMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    return () => document.removeEventListener("mousedown", closeOnOutsideClick);
+  }, [profileMenuOpen]);
 
   if (!loaded) {
     return (
@@ -158,12 +173,14 @@ export function DinnerPlannerApp() {
             <p className="brand-subtitle">{state.household.name}</p>
           </div>
         </div>
-        <div className="header-actions">
+        <div className="header-actions" ref={profileMenuRef}>
           <button
             className="avatar-button"
             type="button"
-            onClick={() => setTab("settings")}
-            aria-label="Open account settings"
+            onClick={() => setProfileMenuOpen((current) => !current)}
+            aria-expanded={profileMenuOpen}
+            aria-haspopup="menu"
+            aria-label="Open profile menu"
           >
             <Avatar
               name={currentMember.displayName}
@@ -172,6 +189,25 @@ export function DinnerPlannerApp() {
               small
             />
           </button>
+          {profileMenuOpen ? (
+            <div className="profile-menu" role="menu">
+              <div className="profile-menu-heading">
+                <strong>{currentMember.displayName}</strong>
+                <span>{state.household.name}</span>
+              </div>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setTab("settings");
+                  setProfileMenuOpen(false);
+                }}
+              >
+                <Settings size={16} />
+                Settings
+              </button>
+            </div>
+          ) : null}
         </div>
       </header>
 
@@ -197,7 +233,10 @@ export function DinnerPlannerApp() {
               key={item.value}
               type="button"
               className={tab === item.value ? "active" : ""}
-              onClick={() => setTab(item.value)}
+              onClick={() => {
+                setTab(item.value);
+                setProfileMenuOpen(false);
+              }}
             >
               <span className="nav-badge-wrap">
                 <Icon size={20} />
