@@ -3,6 +3,9 @@ import type { AiModelOption } from "@/lib/domain/types";
 const MODELS_URL = "https://openrouter.ai/api/v1/models";
 const CACHE_MS = 60 * 60 * 1000;
 
+export const RECOMMENDED_OPENROUTER_MODEL_ID =
+  "google/gemini-2.5-flash-lite";
+
 export const OPENROUTER_RAILWAY_HINT =
   "In Railway, open the app service Variables tab, add OPENROUTER_API_KEY, OPENROUTER_DEFAULT_MODEL, and NEXT_PUBLIC_APP_URL, then review and deploy the staged changes. Keep OPENROUTER_API_KEY server-only; do not prefix it with NEXT_PUBLIC_.";
 
@@ -39,6 +42,17 @@ let cache:
       models: AiModelOption[];
     }
   | undefined;
+
+export function clearOpenRouterModelCache() {
+  cache = undefined;
+}
+
+export function defaultOpenRouterModelId() {
+  return (
+    process.env.OPENROUTER_DEFAULT_MODEL?.trim() ||
+    RECOMMENDED_OPENROUTER_MODEL_ID
+  );
+}
 
 export async function listOpenRouterModels(
   force = false
@@ -104,4 +118,14 @@ export async function requireCompatibleModel(
     );
   }
   return model;
+}
+
+export function describeOpenRouterCompletionError(
+  message: string,
+  modelId: string
+) {
+  if (message.toLowerCase().includes("no endpoints found")) {
+    return `OpenRouter could not find a provider endpoint for "${modelId}" that can handle structured recipe extraction. Clear the model field to use the app default (${defaultOpenRouterModelId()}) or choose another structured-output model.`;
+  }
+  return `${message} Confirm the selected model supports structured output and your OpenRouter key has credits.`;
 }

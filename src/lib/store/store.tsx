@@ -79,7 +79,7 @@ interface AppStore {
     recipeId: string,
     visibility: RecipeVisibility
   ) => void;
-  setAiModel: (modelId: string) => void;
+  setAiModel: (modelId: string) => Promise<boolean>;
   updateHousehold: (name: string) => Promise<boolean>;
   updateMemberProfile: (input: {
     displayName: string;
@@ -341,8 +341,8 @@ export function AppStoreProvider({
       setRecipeVisibility(recipeId, visibility) {
         void run("setRecipeVisibility", { recipeId, visibility });
       },
-      setAiModel(modelId) {
-        void run("setAiModel", { modelId });
+      async setAiModel(modelId) {
+        return Boolean(await run("setAiModel", { modelId }));
       },
       async updateHousehold(name) {
         return Boolean(await run("updateHousehold", { name }));

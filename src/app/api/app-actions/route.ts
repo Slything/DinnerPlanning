@@ -12,6 +12,7 @@ import {
   normalizeUnit
 } from "@/lib/domain/quantities";
 import { generateShoppingList } from "@/lib/domain/shopping";
+import { requireCompatibleModel } from "@/lib/openrouter/models";
 import { loadAppState } from "@/lib/supabase/app-state";
 import { rebuildPantryAllocations } from "@/lib/supabase/allocations";
 import { requireUser } from "@/lib/supabase/server";
@@ -329,9 +330,13 @@ export async function POST(request: Request) {
       });
       if (error) throw error;
     } else if (action === "setAiModel") {
+      const modelId = stringValue(payload.modelId).trim();
+      if (modelId) {
+        await requireCompatibleModel(modelId, false);
+      }
       const { error } = await supabase
         .from("households")
-        .update({ ai_model_id: stringValue(payload.modelId) || null })
+        .update({ ai_model_id: modelId || null })
         .eq("id", householdId);
       if (error) throw error;
     } else if (action === "updateHousehold") {

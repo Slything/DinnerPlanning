@@ -18,6 +18,8 @@ import { parseOpenRouterRecipeContent } from "@/lib/openrouter/extraction";
 import {
   OPENROUTER_RAILWAY_HINT,
   OpenRouterConfigurationError,
+  defaultOpenRouterModelId,
+  describeOpenRouterCompletionError,
   requireCompatibleModel
 } from "@/lib/openrouter/models";
 import { requireUser } from "@/lib/supabase/server";
@@ -71,17 +73,59 @@ export async function POST(request: Request) {
     const householdRelation = Array.isArray(membership.households)
       ? membership.households[0]
       : membership.households;
-    const modelId =
-      parsed.modelId ||
-      householdRelation?.ai_model_id ||
-      process.env.OPENROUTER_DEFAULT_MODEL;
-    if (!modelId) {
-      throw new OpenRouterConfigurationError(
-        "Choose an OpenRouter model in the importer or configure OPENROUTER_DEFAULT_MODEL.",
-        ["OPENROUTER_DEFAULT_MODEL"]
+    const requestedModelId = parsed.modelId?.trim();
+    const householdModelId = householdRelation?.ai_model_id?.trim();
+    const imagesRequired = parsed.images.length > 0;
+    let modelWarning: string | undefined;
+    let modelId = "";
+    if (requestedModelId) {
+      modelId = requestedModelId;
+      await requireCompatibleModel(modelId, imagesRequired);
+    } else {
+      const candidates = [
+        {
+          id: householdModelId,
+          source: "saved household model"
+        },
+        {
+          id: process.env.OPENROUTER_DEFAULT_MODEL?.trim(),
+          source: "Railway default model"
+        },
+        {
+          id: defaultOpenRouterModelId(),
+          source: "app default model"
+        }
+      ].filter(
+        (candidate): candidate is { id: string; source: string } =>
+          Boolean(candidate.id)
       );
+      const tried = new Set<string>();
+      let lastError: Error | undefined;
+      for (const candidate of candidates) {
+        if (tried.has(candidate.id)) continue;
+        tried.add(candidate.id);
+        try {
+          await requireCompatibleModel(candidate.id, imagesRequired);
+          modelId = candidate.id;
+          break;
+        } catch (error) {
+          lastError =
+            error instanceof Error ? error : new Error(String(error));
+          if (candidate.source === "saved household model") {
+            modelWarning = `Your saved household OpenRouter model "${candidate.id}" could not be used, so the app used its default instead.`;
+          }
+        }
+      }
+      if (!modelId) {
+        throw (
+          lastError ??
+          new OpenRouterConfigurationError(
+            "Choose an OpenRouter model in the importer or configure OPENROUTER_DEFAULT_MODEL.",
+            ["OPENROUTER_DEFAULT_MODEL"]
+          )
+        );
+      }
     }
-    await requireCompatibleModel(modelId, parsed.images.length > 0);
 
     let pageText = "";
     let structuredData: unknown[] = [];
@@ -162,9 +206,7 @@ ${combinedText || "Use the attached screenshots."}`
       const providerMessage =
         responsePayload.error?.message ??
         `OpenRouter recipe extraction failed (${response.status}).`;
-      throw new Error(
-        `${providerMessage} Confirm the selected model supports structured output and your OpenRouter key has credits.`
-      );
+      throw new Error(describeOpenRouterCompletionError(providerMessage, modelId));
     }
     const output = responsePayload.choices?.[0]?.message?.content;
     if (!output) throw new Error("OpenRouter returned an empty recipe.");
@@ -185,7 +227,10 @@ ${combinedText || "Use the attached screenshots."}`
           preparation: ingredient.preparation || undefined,
           aisle: inferAisle(ingredient.name)
         };
-      })
+      }),
+      warnings: modelWarning
+        ? [modelWarning, ...extracted.warnings]
+        : extracted.warnings
     };
     return NextResponse.json(draft);
   } catch (error) {

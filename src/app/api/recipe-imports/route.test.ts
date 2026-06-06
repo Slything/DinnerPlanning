@@ -6,6 +6,7 @@ import {
   htmlToPlainText,
   safeFetchRecipePage
 } from "@/lib/import/url-security";
+import { clearOpenRouterModelCache } from "@/lib/openrouter/models";
 
 vi.mock("@/lib/supabase/server", () => ({
   requireUser: vi.fn()
@@ -35,7 +36,18 @@ function mockSignedInHousehold(aiModelId: string | null = null) {
   });
 }
 
-function openRouterFetch(content: Record<string, unknown>) {
+function openRouterFetch(
+  content: Record<string, unknown>,
+  models: Array<Record<string, unknown>> = [
+    {
+      id: "text/structured",
+      name: "Text Structured",
+      context_length: 8000,
+      architecture: { input_modalities: ["text"] },
+      supported_parameters: ["response_format"]
+    }
+  ]
+) {
   let completionBody = "";
   const fetchMock = vi.fn(
     async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -43,15 +55,7 @@ function openRouterFetch(content: Record<string, unknown>) {
       if (url.endsWith("/models")) {
         return new Response(
           JSON.stringify({
-            data: [
-              {
-                id: "text/structured",
-                name: "Text Structured",
-                context_length: 8000,
-                architecture: { input_modalities: ["text"] },
-                supported_parameters: ["response_format"]
-              }
-            ]
+            data: models
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         );
@@ -104,6 +108,7 @@ const extractedRecipe = {
 afterEach(() => {
   vi.resetAllMocks();
   vi.unstubAllGlobals();
+  clearOpenRouterModelCache();
   delete process.env.OPENROUTER_API_KEY;
   delete process.env.OPENROUTER_DEFAULT_MODEL;
   delete process.env.NEXT_PUBLIC_APP_URL;
@@ -142,6 +147,112 @@ describe("/api/recipe-imports", () => {
       canonicalName: "ground beef",
       unit: "lb"
     });
+  });
+
+  it("uses the recommended default when no override or Railway default is set", async () => {
+    process.env.OPENROUTER_API_KEY = "test-key";
+    mockSignedInHousehold();
+    const { getCompletionBody } = openRouterFetch(extractedRecipe, [
+      {
+        id: "ai21/jamba-large-1.7",
+        name: "AI21 Jamba Large 1.7",
+        context_length: 8000,
+        architecture: { input_modalities: ["text"] },
+        supported_parameters: ["response_format"]
+      },
+      {
+        id: "google/gemini-2.5-flash-lite",
+        name: "Gemini 2.5 Flash Lite",
+        context_length: 8000,
+        architecture: { input_modalities: ["text"] },
+        supported_parameters: ["response_format"]
+      }
+    ]);
+
+    const response = await POST(request({ text: "Ground beef taco recipe" }));
+    const completionBody = JSON.parse(getCompletionBody()) as {
+      model: string;
+    };
+
+    expect(response.status).toBe(200);
+    expect(completionBody.model).toBe("google/gemini-2.5-flash-lite");
+  });
+
+  it("uses an explicitly selected compatible model as an override", async () => {
+    process.env.OPENROUTER_API_KEY = "test-key";
+    mockSignedInHousehold();
+    const { getCompletionBody } = openRouterFetch(extractedRecipe, [
+      {
+        id: "custom/structured",
+        name: "Custom Structured",
+        context_length: 8000,
+        architecture: { input_modalities: ["text"] },
+        supported_parameters: ["response_format"]
+      },
+      {
+        id: "google/gemini-2.5-flash-lite",
+        name: "Gemini 2.5 Flash Lite",
+        context_length: 8000,
+        architecture: { input_modalities: ["text"] },
+        supported_parameters: ["response_format"]
+      }
+    ]);
+
+    const response = await POST(
+      request({ text: "Ground beef taco recipe", modelId: "custom/structured" })
+    );
+    const completionBody = JSON.parse(getCompletionBody()) as {
+      model: string;
+    };
+
+    expect(response.status).toBe(200);
+    expect(completionBody.model).toBe("custom/structured");
+  });
+
+  it("explains OpenRouter endpoint routing failures", async () => {
+    process.env.OPENROUTER_API_KEY = "test-key";
+    process.env.OPENROUTER_DEFAULT_MODEL = "text/structured";
+    mockSignedInHousehold();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/models")) {
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: "text/structured",
+                  name: "Text Structured",
+                  context_length: 8000,
+                  architecture: { input_modalities: ["text"] },
+                  supported_parameters: ["response_format"]
+                }
+              ]
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        if (url.endsWith("/chat/completions")) {
+          return new Response(
+            JSON.stringify({
+              error: {
+                message: "No endpoints found that can handle the request"
+              }
+            }),
+            { status: 400, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        throw new Error(`Unexpected fetch to ${url}`);
+      })
+    );
+
+    const response = await POST(request({ text: "Ground beef taco recipe" }));
+    const payload = (await response.json()) as { error: string };
+
+    expect(response.status).toBe(400);
+    expect(payload.error).toContain("could not find a provider endpoint");
+    expect(payload.error).toContain("Clear the model field");
   });
 
   it("passes URL structured data into the OpenRouter extraction request", async () => {

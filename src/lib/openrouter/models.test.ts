@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  clearOpenRouterModelCache,
   listOpenRouterModels,
   requireCompatibleModel
 } from "@/lib/openrouter/models";
@@ -7,6 +8,7 @@ import { parseOpenRouterRecipeContent } from "@/lib/openrouter/extraction";
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  clearOpenRouterModelCache();
   delete process.env.OPENROUTER_API_KEY;
 });
 

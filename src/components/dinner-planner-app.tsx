@@ -815,7 +815,6 @@ function RecipeEditorModal({
         }
         setImportSetup(null);
         setModels(result.models ?? []);
-        if (!modelId && result.models?.[0]) setModelId(result.models[0].id);
       })
       .catch((error) =>
         notify(
@@ -825,7 +824,7 @@ function RecipeEditorModal({
         )
       )
       .finally(() => setModelsLoading(false));
-  }, [mode, modelId, models.length, modelsLoading, notify, open]);
+  }, [mode, models.length, modelsLoading, notify, open]);
 
   async function addScreenshots(files: FileList | null) {
     if (!files) return;
@@ -1062,7 +1061,9 @@ function RecipeEditorModal({
               value={modelId}
               onChange={(event) => setModelId(event.target.value)}
               placeholder={
-                modelsLoading ? "Loading compatible models..." : "provider/model"
+                modelsLoading
+                  ? "Loading compatible models..."
+                  : "Use app default"
               }
             />
             <datalist id="openrouter-models">
@@ -1074,8 +1075,8 @@ function RecipeEditorModal({
               ))}
             </datalist>
             <span className="field-note">
-              Search the catalog or type a custom model ID. Custom IDs are
-              validated before import.
+              Leave blank to use the app default, or search the catalog to
+              temporarily override this import.
             </span>
           </label>
           <label className="upload-placeholder">
@@ -2998,8 +2999,8 @@ function HouseholdScreen({ notify }: { notify: (message: string) => void }) {
           <Settings size={23} color="#315c4a" />
           <h3>Recipe import model</h3>
           <p>
-            Choose the household default. You can temporarily override it when
-            importing an individual recipe.
+            Leave this blank to use the app default. You can still temporarily
+            override the model when importing an individual recipe.
           </p>
           <label>
             OpenRouter model
@@ -3007,7 +3008,7 @@ function HouseholdScreen({ notify }: { notify: (message: string) => void }) {
               list="household-openrouter-models"
               value={modelId}
               onChange={(event) => setModelId(event.target.value)}
-              placeholder="provider/model"
+              placeholder="Use app default"
             />
             <datalist id="household-openrouter-models">
               {models.map((model) => (
@@ -3019,13 +3020,28 @@ function HouseholdScreen({ notify }: { notify: (message: string) => void }) {
           </label>
           <button
             className="secondary-button"
-            onClick={() => {
-              setAiModel(modelId);
-              notify("Household OpenRouter model updated.");
+            onClick={async () => {
+              const saved = await setAiModel(modelId);
+              if (saved) {
+                notify(
+                  modelId.trim()
+                    ? "Household OpenRouter model updated."
+                    : "Household is using the app default model."
+                );
+              }
             }}
           >
             Save model
           </button>
+          {modelId ? (
+            <button
+              className="ghost-button"
+              type="button"
+              onClick={() => setModelId("")}
+            >
+              Use app default
+            </button>
+          ) : null}
         </section>
         <section className="settings-card card">
           <Apple size={23} color="#315c4a" />

@@ -27,7 +27,7 @@ NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 OPENROUTER_API_KEY=
-OPENROUTER_DEFAULT_MODEL=
+OPENROUTER_DEFAULT_MODEL=google/gemini-2.5-flash-lite
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
@@ -62,7 +62,7 @@ deployed app service, go to **Variables**, and add:
 
 ```bash
 OPENROUTER_API_KEY=...
-OPENROUTER_DEFAULT_MODEL=...
+OPENROUTER_DEFAULT_MODEL=google/gemini-2.5-flash-lite
 NEXT_PUBLIC_APP_URL=https://your-railway-domain
 ```
 
@@ -70,6 +70,22 @@ You can add these one at a time with **New Variable** or paste them with
 **Raw Editor**. After saving, review/deploy Railway's staged changes so the
 running app receives the variables. `OPENROUTER_API_KEY` must stay server-only;
 do not rename it to `NEXT_PUBLIC_OPENROUTER_API_KEY`.
+
+If the app ever appears to use a model you did not choose, confirm the
+household default in Supabase:
+
+```sql
+select id, name, ai_model_id
+from public.households;
+```
+
+To clear the old Jamba value and return to the app default:
+
+```sql
+update public.households
+set ai_model_id = null
+where ai_model_id = 'ai21/jamba-large-1.7';
+```
 
 ## Verification
 
