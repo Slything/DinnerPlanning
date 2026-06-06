@@ -13,7 +13,6 @@ import {
   canonicalizeIngredient,
   fromBaseForDisplay,
   normalizeUnit,
-  scaleQuantity,
   toBaseQuantity
 } from "@/lib/domain/quantities";
 
@@ -48,11 +47,7 @@ export function collectRequirements(
       ingredient,
       plannedMealId: meal.id,
       recipeId: recipe.id,
-      quantity: scaleQuantity(
-        ingredient.quantity,
-        version.yield,
-        meal.servings
-      )
+      quantity: ingredient.quantity
     }));
   });
 }
@@ -254,10 +249,6 @@ export function getMealRequirements(
   const version = currentRecipeVersion(recipe);
   return version.ingredients.map((ingredient) => ({
     ...ingredient,
-    quantity: scaleQuantity(
-      ingredient.quantity,
-      version.yield,
-      meal.servings
-    )
+    quantity: ingredient.quantity
   }));
 }

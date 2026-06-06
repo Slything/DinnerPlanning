@@ -12,7 +12,6 @@ import type {
 import {
   canonicalizeIngredient,
   normalizeUnit,
-  scaleQuantity,
   toBaseQuantity
 } from "@/lib/domain/quantities";
 import { currentRecipeVersion } from "@/lib/domain/shopping";
@@ -147,14 +146,9 @@ export function markMealCooked(input: {
   const version = currentRecipeVersion(input.recipe);
   const sessionId = id("cooking-session");
   const usage: IngredientUsage[] = version.ingredients.map((ingredient) => {
-    const scaled = scaleQuantity(
-      ingredient.quantity,
-      version.yield,
-      input.meal.servings
-    );
     const actual = calculateActualUsage(
       ingredient,
-      scaled,
+      ingredient.quantity,
       input.adjustments
     );
     return {
@@ -310,4 +304,3 @@ export function createAdjustment(input: {
     note: input.note
   };
 }
-

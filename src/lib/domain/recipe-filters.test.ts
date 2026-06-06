@@ -4,15 +4,17 @@ import type {
   IngredientCatalogEntry,
   Recipe
 } from "@/lib/domain/types";
+import { filterAndSortRecipes } from "@/lib/domain/recipe-filters";
 import {
-  filterAndSortRecipes,
-  searchIngredientCatalog
-} from "@/lib/domain/recipe-filters";
+  mergedIngredientCatalog,
+  searchIngredientSuggestions
+} from "@/lib/domain/ingredient-catalog";
 
 function recipe(
   id: string,
   minutes: number,
-  favorite = false
+  favorite = false,
+  tags: string[] = []
 ): Recipe {
   return {
     id,
@@ -21,7 +23,7 @@ function recipe(
     description: "",
     prepMinutes: minutes,
     cookMinutes: 0,
-    tags: [],
+    tags,
     favorite,
     visibility: "private",
     currentVersion: 1,
@@ -80,7 +82,7 @@ describe("recipe browsing", () => {
         query: "",
         favoritesOnly: false,
         neverCookedOnly: false,
-        maxMinutes: null,
+        quickCookOnly: false,
         sort: "least-recent"
       }
     );
@@ -91,16 +93,19 @@ describe("recipe browsing", () => {
     ]);
   });
 
-  it("searches ingredients and combines favorite/time filters", () => {
+  it("searches ingredients and combines favorite/quick cook filters", () => {
     const result = filterAndSortRecipes(
-      [recipe("tacos", 30, true), recipe("pasta", 70, true)],
+      [
+        recipe("tacos", 30, true, ["Quick Cook"]),
+        recipe("pasta", 70, true)
+      ],
       [],
       {
         query: "onion",
         favoritesOnly: true,
         neverCookedOnly: false,
-        maxMinutes: 45,
-        sort: "fastest"
+        quickCookOnly: true,
+        sort: "alphabetical"
       }
     );
     expect(result.map((item) => item.id)).toEqual(["tacos"]);
@@ -108,7 +113,7 @@ describe("recipe browsing", () => {
 });
 
 describe("ingredient catalog suggestions", () => {
-  it("prioritizes prefix matches and limits suggestions", () => {
+  it("merges starter groceries with household suggestions", () => {
     const catalog: IngredientCatalogEntry[] = [
       {
         id: "yellow",
@@ -121,20 +126,11 @@ describe("ingredient catalog suggestions", () => {
         aliases: ["onion"],
         usageCount: 2,
         lastUsedAt: "2026-06-01T00:00:00.000Z"
-      },
-      {
-        id: "powder",
-        householdId: "household",
-        canonicalName: "onion powder",
-        displayName: "Onion powder",
-        defaultUnit: "tsp",
-        dimension: "volume",
-        aisle: "Pantry",
-        aliases: [],
-        usageCount: 1,
-        lastUsedAt: "2026-05-01T00:00:00.000Z"
       }
     ];
-    expect(searchIngredientCatalog(catalog, "on", 1)[0].id).toBe("powder");
+    const suggestions = mergedIngredientCatalog(catalog);
+    expect(searchIngredientSuggestions(suggestions, "on", 1)[0].id).toBe(
+      "yellow"
+    );
   });
 });

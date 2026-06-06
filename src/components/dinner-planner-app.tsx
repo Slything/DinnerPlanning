@@ -8,7 +8,6 @@ import {
   ChefHat,
   ChevronRight,
   CircleAlert,
-  Clock3,
   Download,
   Globe2,
   Heart,
@@ -45,13 +44,15 @@ import type {
   Recipe,
   RecipeSortMode,
   RecipeVisibility,
-  SharedRecipeSnapshot,
-  ShoppingListItem
+  SharedRecipeSnapshot
 } from "@/lib/domain/types";
 import {
+  UNIT_OPTIONS,
   createIngredient,
-  formatQuantity,
+  formatIngredientAmount,
+  formatIngredientLine,
   inferAisle,
+  normalizeUnit,
   parseQuantity
 } from "@/lib/domain/quantities";
 import { createAdjustment } from "@/lib/domain/cooking";
@@ -61,9 +62,13 @@ import {
 } from "@/lib/domain/shopping";
 import { rankRecipeSuggestions } from "@/lib/domain/suggestions";
 import {
-  filterAndSortRecipes,
-  searchIngredientCatalog
+  filterAndSortRecipes
 } from "@/lib/domain/recipe-filters";
+import {
+  findIngredientSuggestion,
+  mergedIngredientCatalog,
+  searchIngredientSuggestions
+} from "@/lib/domain/ingredient-catalog";
 import { useAppStore } from "@/lib/store/store";
 import { createClient } from "@/lib/supabase/client";
 import { clearOfflineShoppingData } from "@/lib/offline/shopping-queue";
@@ -95,7 +100,24 @@ function mealRecipe(meal: PlannedMeal | undefined, recipes: Recipe[]) {
 
 function quantityLabel(quantity: number | null, unit: string) {
   if (quantity === null) return `In stock · amount unknown`;
-  return `${formatQuantity(quantity)}${unit && unit !== "count" ? ` ${unit}` : ""}`;
+  return `In stock · ${formatIngredientAmount({ quantity, unit })}`;
+}
+
+const PLACEHOLDER_RECIPE_IMAGE =
+  "https://images.unsplash.com/photo-1543353071-873f17a7a088?auto=format&fit=crop&w=900&q=80";
+
+function realRecipeImage(recipe: Recipe): string | undefined {
+  if (!recipe.imageUrl || recipe.imageUrl === PLACEHOLDER_RECIPE_IMAGE) {
+    return undefined;
+  }
+  return recipe.imageUrl;
+}
+
+function quickCookTags(tags: string[], quickCook: boolean): string[] {
+  const withoutQuickCook = tags.filter(
+    (tag) => tag.toLowerCase() !== "quick cook"
+  );
+  return quickCook ? ["Quick Cook", ...withoutQuickCook] : withoutQuickCook;
 }
 
 export function DinnerPlannerApp() {
@@ -281,11 +303,9 @@ function WeekScreen({ notify }: { notify: (message: string) => void }) {
                   <>
                     <h3 className="meal-title">{recipe.title}</h3>
                     <div className="meal-meta">
-                      <span>
-                        <Clock3 size={12} />{" "}
-                        {recipe.prepMinutes + recipe.cookMinutes} min
-                      </span>
-                      <span>{meal?.servings} servings</span>
+                      {recipe.tags.slice(0, 2).map((tag) => (
+                        <span key={tag}>{tag}</span>
+                      ))}
                       {meal?.cookedAt ? (
                         <span className="cooked-badge">
                           <Check size={11} /> Cooked
@@ -367,10 +387,7 @@ function WeekScreen({ notify }: { notify: (message: string) => void }) {
           >
             <span className="tag">{suggestion.reason}</span>
             <h3>{suggestion.recipe.title}</h3>
-            <p>
-              {suggestion.recipe.prepMinutes + suggestion.recipe.cookMinutes}{" "}
-              minutes · {suggestion.recipe.tags[0]}
-            </p>
+            <p>{suggestion.recipe.tags[0] ?? "Household recipe"}</p>
             <span className="suggestion-number">0{index + 1}</span>
           </button>
         ))}
@@ -406,7 +423,6 @@ function MealPickerModal({
   notify: (message: string) => void;
 }) {
   const { state, scheduleRecipe, scheduleSpecial } = useAppStore();
-  const [servings, setServings] = useState(state.household.defaultServings);
   const [query, setQuery] = useState("");
   const recipes = state.recipes.filter((recipe) =>
     `${recipe.title} ${recipe.tags.join(" ")}`
@@ -421,22 +437,13 @@ function MealPickerModal({
       eyebrow="Plan dinner"
       onClose={onClose}
     >
-      <div className="form-two">
-        <label>
-          Servings
-          <input
-            type="number"
-            min={1}
-            value={servings}
-            onChange={(event) => setServings(Number(event.target.value))}
-          />
-        </label>
+      <div className="form-grid">
         <label>
           Find a recipe
           <input
             value={query}
             placeholder="Search recipes"
-            onChange={(event) => setQuery(event.target.value)}
+                onChange={(event) => setQuery(event.target.value)}
           />
         </label>
       </div>
@@ -447,21 +454,14 @@ function MealPickerModal({
             type="button"
             key={recipe.id}
             onClick={() => {
-              scheduleRecipe(date!, recipe.id, servings);
+              scheduleRecipe(date!, recipe.id);
               notify(`${recipe.title} added to the week.`);
               onClose();
             }}
           >
-            <span
-              className="meal-picker-thumb"
-              style={{ backgroundImage: `url("${recipe.imageUrl ?? ""}")` }}
-            />
             <span className="row-main">
               <strong>{recipe.title}</strong>
-              <span>
-                {recipe.prepMinutes + recipe.cookMinutes} minutes ·{" "}
-                {recipe.tags.slice(0, 2).join(" · ")}
-              </span>
+              <span>{recipe.tags.slice(0, 2).join(" · ")}</span>
             </span>
             <ChevronRight size={17} />
           </button>
@@ -470,7 +470,7 @@ function MealPickerModal({
           <button
             className="secondary-button"
             onClick={() => {
-              scheduleSpecial(date!, "leftovers", servings);
+              scheduleSpecial(date!, "leftovers");
               notify("Leftovers night added.");
               onClose();
             }}
@@ -480,7 +480,7 @@ function MealPickerModal({
           <button
             className="secondary-button"
             onClick={() => {
-              scheduleSpecial(date!, "dining-out", servings);
+              scheduleSpecial(date!, "dining-out");
               notify("Dining out added.");
               onClose();
             }}
@@ -499,7 +499,7 @@ function RecipesScreen({ notify }: { notify: (message: string) => void }) {
   const [sort, setSort] = useState<RecipeSortMode>("least-recent");
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [neverCookedOnly, setNeverCookedOnly] = useState(false);
-  const [maxMinutes, setMaxMinutes] = useState<number | null>(null);
+  const [quickCookOnly, setQuickCookOnly] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [proposalId, setProposalId] = useState<string | null>(null);
@@ -511,11 +511,11 @@ function RecipesScreen({ notify }: { notify: (message: string) => void }) {
     state.recipes,
     state.cookingSessions,
     {
-    query,
-    sort,
-    favoritesOnly,
-    neverCookedOnly,
-    maxMinutes
+      query,
+      sort,
+      favoritesOnly,
+      neverCookedOnly,
+      quickCookOnly
     }
   );
 
@@ -574,8 +574,6 @@ function RecipesScreen({ notify }: { notify: (message: string) => void }) {
           onChange={(event) => setSort(event.target.value as RecipeSortMode)}
         >
           <option value="least-recent">Haven&apos;t eaten in a while</option>
-          <option value="fastest">Fastest</option>
-          <option value="slowest">Slowest</option>
           <option value="newest">Newest</option>
           <option value="alphabetical">A-Z</option>
         </select>
@@ -595,57 +593,31 @@ function RecipesScreen({ notify }: { notify: (message: string) => void }) {
         >
           Never cooked
         </button>
-        {[30, 45, 60].map((minutes) => (
-          <button
-            className={
-              maxMinutes === minutes ? "filter-chip active" : "filter-chip"
-            }
-            type="button"
-            key={minutes}
-            onClick={() =>
-              setMaxMinutes((current) =>
-                current === minutes ? null : minutes
-              )
-            }
-          >
-            Up to {minutes} min
-          </button>
-        ))}
+        <button
+          className={quickCookOnly ? "filter-chip active" : "filter-chip"}
+          type="button"
+          onClick={() => setQuickCookOnly((current) => !current)}
+        >
+          Quick Cook
+        </button>
       </div>
 
       <div className="recipe-grid">
         {recipes.map((recipe) => (
           <article className="recipe-card card" key={recipe.id}>
-            <div
-              className="recipe-image"
-              style={{ backgroundImage: `url("${recipe.imageUrl ?? ""}")` }}
-              onClick={() => setDetailId(recipe.id)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  setDetailId(recipe.id);
-                }
-              }}
-              role="button"
-              tabIndex={0}
-              aria-label={`Open ${recipe.title}`}
+            <button
+              className="favorite-button recipe-card-favorite"
+              type="button"
+              onClick={() => toggleFavorite(recipe.id)}
+              aria-label={
+                recipe.favorite ? "Remove from favorites" : "Add to favorites"
+              }
             >
-              <button
-                className="favorite-button"
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  toggleFavorite(recipe.id);
-                }}
-                aria-label={
-                  recipe.favorite ? "Remove from favorites" : "Add to favorites"
-                }
-              >
-                <Heart
-                  size={18}
-                  fill={recipe.favorite ? "currentColor" : "none"}
-                />
-              </button>
-            </div>
+              <Heart
+                size={18}
+                fill={recipe.favorite ? "currentColor" : "none"}
+              />
+            </button>
             <button
               type="button"
               className="recipe-card-body"
@@ -661,10 +633,6 @@ function RecipesScreen({ notify }: { notify: (message: string) => void }) {
                 ))}
               </div>
               <div className="recipe-footer">
-                <span>
-                  <Clock3 size={12} />{" "}
-                  {recipe.prepMinutes + recipe.cookMinutes} min
-                </span>
                 <span>v{recipe.currentVersion}</span>
               </div>
               {recipe.updateAvailable ? (
@@ -702,10 +670,13 @@ function RecipesScreen({ notify }: { notify: (message: string) => void }) {
 interface IngredientEditorValue {
   id: string;
   catalogId?: string;
+  canonicalName?: string;
+  dimension?: IngredientAmount["dimension"];
   name: string;
   quantity: string;
   unit: string;
   aisle?: GroceryAisle;
+  saveToCatalog?: boolean;
 }
 
 function emptyIngredient(): IngredientEditorValue {
@@ -713,7 +684,8 @@ function emptyIngredient(): IngredientEditorValue {
     id: crypto.randomUUID(),
     name: "",
     quantity: "",
-    unit: "count"
+    unit: "count",
+    saveToCatalog: true
   };
 }
 
@@ -736,6 +708,7 @@ function RecipeEditorModal({
   const [prepMinutes, setPrepMinutes] = useState("15");
   const [cookMinutes, setCookMinutes] = useState("30");
   const [tags, setTags] = useState("");
+  const [quickCook, setQuickCook] = useState(false);
   const [visibility, setVisibility] =
     useState<RecipeVisibility>("private");
   const [ingredients, setIngredients] = useState<IngredientEditorValue[]>([
@@ -750,6 +723,10 @@ function RecipeEditorModal({
   const [modelsLoading, setModelsLoading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [warnings, setWarnings] = useState<string[]>([]);
+  const ingredientSuggestions = useMemo(
+    () => mergedIngredientCatalog(state.ingredientCatalog),
+    [state.ingredientCatalog]
+  );
 
   function reset() {
     setMode("manual");
@@ -761,6 +738,7 @@ function RecipeEditorModal({
     setPrepMinutes("15");
     setCookMinutes("30");
     setTags("");
+    setQuickCook(false);
     setVisibility("private");
     setIngredients([emptyIngredient(), emptyIngredient()]);
     setInstructions([""]);
@@ -851,16 +829,26 @@ function RecipeEditorModal({
       setYieldCount(String(draft.yield || 4));
       setPrepMinutes(String(draft.prepMinutes || 0));
       setCookMinutes(String(draft.cookMinutes || 0));
-      setTags(draft.tags.join(", "));
+      setTags(
+        draft.tags
+          .filter((tag) => tag.toLowerCase() !== "quick cook")
+          .join(", ")
+      );
+      setQuickCook(
+        draft.tags.some((tag) => tag.toLowerCase() === "quick cook")
+      );
       setIngredients(
         draft.ingredients.map((ingredient) => ({
           id: ingredient.id || crypto.randomUUID(),
           name: ingredient.name,
+          canonicalName: ingredient.canonicalName,
           quantity:
             ingredient.quantity === null ? "" : String(ingredient.quantity),
           unit: ingredient.unit,
           catalogId: ingredient.catalogId,
-          aisle: ingredient.aisle
+          dimension: ingredient.dimension,
+          aisle: ingredient.aisle,
+          saveToCatalog: true
         }))
       );
       setInstructions(draft.instructions.length ? draft.instructions : [""]);
@@ -881,16 +869,24 @@ function RecipeEditorModal({
   async function saveRecipe() {
     const parsedIngredients = ingredients
       .filter((ingredient) => ingredient.name.trim())
-      .map((ingredient) => ({
-        ...createIngredient(
+      .map((ingredient) => {
+        const normalized = normalizeUnit(ingredient.unit);
+        const parsed = parseQuantity(ingredient.quantity);
+        const base = createIngredient(
           ingredient.id,
           ingredient.name.trim(),
-          parseQuantity(ingredient.quantity),
+          parsed,
           ingredient.unit
-        ),
-        catalogId: ingredient.catalogId,
-        aisle: ingredient.aisle ?? inferAisle(ingredient.name)
-      }));
+        );
+        return {
+          ...base,
+          catalogId: ingredient.catalogId,
+          saveToCatalog: ingredient.saveToCatalog ?? true,
+          canonicalName: ingredient.canonicalName ?? base.canonicalName,
+          dimension: ingredient.dimension ?? normalized.dimension,
+          aisle: ingredient.aisle ?? inferAisle(ingredient.name)
+        };
+      });
     if (!title.trim() || parsedIngredients.length === 0) {
       notify("Add a title and at least one ingredient.");
       return;
@@ -900,14 +896,16 @@ function RecipeEditorModal({
       description: description.trim(),
       sourceUrl: sourceUrl.trim() || undefined,
       sourceCreator: creator.trim() || undefined,
-      imageUrl:
-        "https://images.unsplash.com/photo-1543353071-873f17a7a088?auto=format&fit=crop&w=900&q=80",
+      imageUrl: undefined,
       prepMinutes: Number(prepMinutes) || 0,
       cookMinutes: Number(cookMinutes) || 0,
-      tags: tags
-        .split(",")
-        .map((tag) => tag.trim())
-        .filter(Boolean),
+      tags: quickCookTags(
+        tags
+          .split(",")
+          .map((tag) => tag.trim())
+          .filter(Boolean),
+        quickCook
+      ),
       favorite: false,
       visibility,
       yield: Number(yieldCount) || 4,
@@ -1052,7 +1050,7 @@ function RecipeEditorModal({
               placeholder="What makes this one worth remembering?"
             />
           </label>
-          <div className="form-three">
+          <div className="form-two">
             <label>
               Makes
               <input
@@ -1062,23 +1060,13 @@ function RecipeEditorModal({
                 onChange={(event) => setYieldCount(event.target.value)}
               />
             </label>
-            <label>
-              Prep min
+            <label className="inline-check">
               <input
-                type="number"
-                min={0}
-                value={prepMinutes}
-                onChange={(event) => setPrepMinutes(event.target.value)}
+                type="checkbox"
+                checked={quickCook}
+                onChange={(event) => setQuickCook(event.target.checked)}
               />
-            </label>
-            <label>
-              Cook min
-              <input
-                type="number"
-                min={0}
-                value={cookMinutes}
-                onChange={(event) => setCookMinutes(event.target.value)}
-              />
+              Quick Cook
             </label>
           </div>
           <div className="form-two">
@@ -1137,92 +1125,147 @@ function RecipeEditorModal({
               </button>
             </div>
             <div className="form-grid compact-grid">
-              {ingredients.map((ingredient) => (
-                <div className="ingredient-editor-row" key={ingredient.id}>
-                  <input
-                    list={`ingredient-catalog-${ingredient.id}`}
-                    value={ingredient.name}
-                    placeholder="Ingredient"
-                    onChange={(event) => {
-                      const name = event.target.value;
-                      const match = state.ingredientCatalog.find(
-                        (entry) =>
-                          entry.displayName.toLowerCase() ===
-                            name.toLowerCase() ||
-                          entry.aliases.some(
-                            (alias) =>
-                              alias.toLowerCase() === name.toLowerCase()
+              {ingredients.map((ingredient) => {
+                const selectedSuggestion = findIngredientSuggestion(
+                  ingredientSuggestions,
+                  ingredient.name
+                );
+                const isCustom =
+                  Boolean(ingredient.name.trim()) && !selectedSuggestion;
+                return (
+                  <div className="ingredient-editor-item" key={ingredient.id}>
+                    <div className="ingredient-editor-row">
+                      <input
+                        value={ingredient.quantity}
+                        placeholder="Qty"
+                        onChange={(event) =>
+                          setIngredients((current) =>
+                            current.map((candidate) =>
+                              candidate.id === ingredient.id
+                                ? {
+                                    ...candidate,
+                                    quantity: event.target.value
+                                  }
+                                : candidate
+                            )
                           )
-                      );
-                      setIngredients((current) =>
-                        current.map((candidate) =>
-                          candidate.id === ingredient.id
-                            ? {
-                                ...candidate,
-                                name,
-                                catalogId: match?.id,
-                                unit: match?.defaultUnit ?? candidate.unit,
-                                aisle: match?.aisle,
-                                quantity: match ? "" : candidate.quantity
-                              }
-                            : candidate
-                        )
-                      );
-                    }}
-                  />
-                  <datalist id={`ingredient-catalog-${ingredient.id}`}>
-                    {searchIngredientCatalog(
-                      state.ingredientCatalog,
-                      ingredient.name
-                    ).map((entry) => (
-                      <option
-                        value={entry.displayName}
-                        key={entry.id}
-                      >{`${entry.defaultUnit} · ${entry.aisle}`}</option>
-                    ))}
-                  </datalist>
-                  <input
-                    value={ingredient.quantity}
-                    placeholder="Qty"
-                    onChange={(event) =>
-                      setIngredients((current) =>
-                        current.map((candidate) =>
-                          candidate.id === ingredient.id
-                            ? { ...candidate, quantity: event.target.value }
-                            : candidate
-                        )
-                      )
-                    }
-                  />
-                  <input
-                    value={ingredient.unit}
-                    placeholder="Unit"
-                    onChange={(event) =>
-                      setIngredients((current) =>
-                        current.map((candidate) =>
-                          candidate.id === ingredient.id
-                            ? { ...candidate, unit: event.target.value }
-                            : candidate
-                        )
-                      )
-                    }
-                  />
-                  <button
-                    className="mini-button"
-                    type="button"
-                    aria-label="Remove ingredient"
-                    onClick={() =>
-                      setIngredients((current) =>
-                        current.filter(
-                          (candidate) => candidate.id !== ingredient.id
-                        )
-                      )
-                    }
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              ))}
+                        }
+                      />
+                      <select
+                        value={ingredient.unit}
+                        onChange={(event) => {
+                          const unit = event.target.value;
+                          const normalized = normalizeUnit(unit);
+                          setIngredients((current) =>
+                            current.map((candidate) =>
+                              candidate.id === ingredient.id
+                                ? {
+                                    ...candidate,
+                                    unit,
+                                    dimension: normalized.dimension
+                                  }
+                                : candidate
+                            )
+                          );
+                        }}
+                      >
+                        {UNIT_OPTIONS.map((option) => (
+                          <option value={option.value} key={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        list={`ingredient-catalog-${ingredient.id}`}
+                        value={ingredient.name}
+                        placeholder="Ingredient"
+                        onChange={(event) => {
+                          const name = event.target.value;
+                          const match = findIngredientSuggestion(
+                            ingredientSuggestions,
+                            name
+                          );
+                          setIngredients((current) =>
+                            current.map((candidate) =>
+                              candidate.id === ingredient.id
+                                ? {
+                                    ...candidate,
+                                    name: match?.displayName ?? name,
+                                    canonicalName: match?.canonicalName,
+                                    catalogId:
+                                      match?.source === "household"
+                                        ? match.id
+                                        : undefined,
+                                    unit:
+                                      match?.defaultUnit ?? candidate.unit,
+                                    dimension:
+                                      match?.dimension ?? candidate.dimension,
+                                    aisle: match?.aisle,
+                                    quantity: match
+                                      ? ""
+                                      : candidate.quantity,
+                                    saveToCatalog:
+                                      match ? true : candidate.saveToCatalog
+                                  }
+                                : candidate
+                            )
+                          );
+                        }}
+                      />
+                      <datalist id={`ingredient-catalog-${ingredient.id}`}>
+                        {searchIngredientSuggestions(
+                          ingredientSuggestions,
+                          ingredient.name
+                        ).map((entry) => (
+                          <option
+                            value={entry.displayName}
+                            key={entry.id}
+                          >
+                            {entry.defaultUnit === "count"
+                              ? "each"
+                              : entry.defaultUnit}
+                          </option>
+                        ))}
+                      </datalist>
+                      <button
+                        className="mini-button"
+                        type="button"
+                        aria-label="Remove ingredient"
+                        onClick={() =>
+                          setIngredients((current) =>
+                            current.filter(
+                              (candidate) => candidate.id !== ingredient.id
+                            )
+                          )
+                        }
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                    {isCustom ? (
+                      <label className="inline-check ingredient-save-check">
+                        <input
+                          type="checkbox"
+                          checked={ingredient.saveToCatalog ?? true}
+                          onChange={(event) =>
+                            setIngredients((current) =>
+                              current.map((candidate) =>
+                                candidate.id === ingredient.id
+                                  ? {
+                                      ...candidate,
+                                      saveToCatalog: event.target.checked
+                                    }
+                                  : candidate
+                              )
+                            )
+                          }
+                        />
+                        Save &quot;{ingredient.name}&quot; to household suggestions
+                      </label>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
           </div>
 
@@ -1305,34 +1348,11 @@ function RecipeDetailModal({
   const {
     state,
     refresh,
-    setRecipeVisibility,
     restoreRecipeVersion
   } = useAppStore();
-  const [shareEmail, setShareEmail] = useState("");
-  const [shareUrl, setShareUrl] = useState("");
-  const [sharing, setSharing] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const [updating, setUpdating] = useState(false);
-  const [privateShares, setPrivateShares] = useState<
-    Array<{
-      id: string;
-      recipient_email: string;
-      active: boolean;
-      accepted_at: string | null;
-    }>
-  >([]);
   const recipe = state.recipes.find((candidate) => candidate.id === recipeId);
-  useEffect(() => {
-    if (!recipeId) return;
-    void fetch(`/api/recipe-invitations?recipeId=${recipeId}`)
-      .then(async (response) => {
-        if (!response.ok) return;
-        const result = (await response.json()) as {
-          shares?: typeof privateShares;
-        };
-        setPrivateShares(result.shares ?? []);
-      })
-      .catch(() => undefined);
-  }, [recipeId]);
   if (!recipe) {
     return (
       <Modal open={false} title="Recipe" onClose={onClose}>
@@ -1341,12 +1361,15 @@ function RecipeDetailModal({
     );
   }
   const version = currentRecipeVersion(recipe);
+  const imageUrl = realRecipeImage(recipe);
   return (
     <Modal open title={recipe.title} eyebrow="Household recipe" onClose={onClose}>
-      <div
-        className="recipe-hero"
-        style={{ backgroundImage: `url("${recipe.imageUrl ?? ""}")` }}
-      />
+      {imageUrl ? (
+        <div
+          className="recipe-hero"
+          style={{ backgroundImage: `url("${imageUrl}")` }}
+        />
+      ) : null}
       <p>{recipe.description}</p>
       <div className="tag-row">
         {recipe.tags.map((tag) => (
@@ -1358,15 +1381,7 @@ function RecipeDetailModal({
       <div className="recipe-detail-meta">
         <div>
           <strong>{version.yield}</strong>
-          <span>Servings</span>
-        </div>
-        <div>
-          <strong>{recipe.prepMinutes}</strong>
-          <span>Prep min</span>
-        </div>
-        <div>
-          <strong>{recipe.cookMinutes}</strong>
-          <span>Cook min</span>
+          <span>Makes</span>
         </div>
         <div>
           <strong>v{recipe.currentVersion}</strong>
@@ -1385,14 +1400,7 @@ function RecipeDetailModal({
       <ul className="ingredient-list">
         {version.ingredients.map((ingredient) => (
           <li key={ingredient.id}>
-            <span>{ingredient.name}</span>
-            <strong>
-              {ingredient.quantity === null
-                ? ingredient.qualitative ?? "as needed"
-                : `${formatQuantity(ingredient.quantity)} ${
-                    ingredient.unit === "count" ? "" : ingredient.unit
-                  }`}
-            </strong>
+            <span>{formatIngredientLine(ingredient)}</span>
           </li>
         ))}
       </ul>
@@ -1481,9 +1489,121 @@ function RecipeDetailModal({
           </button>
         </div>
       ) : null}
+      <div className="form-actions">
+        <button
+          className="secondary-button"
+          type="button"
+          onClick={() => setShareOpen(true)}
+        >
+          <Share2 size={16} /> Share
+        </button>
+      </div>
+      <RecipeShareModal
+        recipe={recipe}
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+        notify={notify}
+      />
+    </Modal>
+  );
+}
+
+interface PrivateRecipeShare {
+  id: string;
+  recipient_email: string;
+  active: boolean;
+  accepted_at: string | null;
+}
+
+function RecipeShareModal({
+  recipe,
+  open,
+  onClose,
+  notify
+}: {
+  recipe: Recipe;
+  open: boolean;
+  onClose: () => void;
+  notify: (message: string) => void;
+}) {
+  const { setRecipeVisibility } = useAppStore();
+  const [shareEmail, setShareEmail] = useState("");
+  const [shareUrl, setShareUrl] = useState("");
+  const [sharing, setSharing] = useState(false);
+  const [privateShares, setPrivateShares] = useState<PrivateRecipeShare[]>([]);
+
+  useEffect(() => {
+    if (!open) return;
+    void fetch(`/api/recipe-invitations?recipeId=${recipe.id}`)
+      .then(async (response) => {
+        if (!response.ok) return;
+        const result = (await response.json()) as {
+          shares?: PrivateRecipeShare[];
+        };
+        setPrivateShares(result.shares ?? []);
+      })
+      .catch(() => undefined);
+  }, [open, recipe.id]);
+
+  async function sharePrivately() {
+    if (!shareEmail.includes("@")) {
+      notify("Enter the email address for the person you want to share with.");
+      return;
+    }
+    setSharing(true);
+    const response = await fetch("/api/recipe-invitations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        recipeId: recipe.id,
+        email: shareEmail
+      })
+    });
+    const result = (await response.json()) as {
+      shareId?: string;
+      inviteUrl?: string;
+      emailSent?: boolean;
+      emailError?: string;
+      error?: string;
+    };
+    if (response.ok && result.inviteUrl) {
+      setShareUrl(result.inviteUrl);
+      if (result.shareId) {
+        setPrivateShares((current) => [
+          {
+            id: result.shareId!,
+            recipient_email: shareEmail,
+            active: true,
+            accepted_at: null
+          },
+          ...current
+        ]);
+      }
+      notify(
+        result.emailSent
+          ? "Private recipe invitation emailed."
+          : result.emailError
+            ? "Private recipe link prepared. Email could not be sent automatically."
+            : "Private recipe invitation link prepared."
+      );
+      setShareEmail("");
+    } else {
+      notify(result.error ?? "The invitation could not be created.");
+    }
+    setSharing(false);
+  }
+
+  return (
+    <Modal
+      open={open}
+      title={`Share ${recipe.title}`}
+      eyebrow="Recipe sharing"
+      onClose={onClose}
+      wide
+    >
       <div className="settings-card card">
         <Globe2 size={20} color="#315c4a" />
-        <h3>Discovery</h3>
+        <h3>Community discovery</h3>
         <p>
           {recipe.visibility === "public"
             ? "Signed-in Gather & Graze households can discover and copy this recipe."
@@ -1505,11 +1625,12 @@ function RecipeDetailModal({
           {recipe.visibility === "public" ? "Make private" : "Publish recipe"}
         </button>
       </div>
+
       <div className="settings-card card">
         <Share2 size={20} color="#315c4a" />
-        <h3>Share privately</h3>
+        <h3>Private link</h3>
         <p>
-          The invitation is email-bound and creates an independent copy in the
+          Send an email-bound invitation that creates an independent copy in the
           recipient&apos;s household.
         </p>
         <div className="invite-row">
@@ -1522,48 +1643,7 @@ function RecipeDetailModal({
           <button
             className="primary-button"
             disabled={sharing}
-            onClick={async () => {
-              setSharing(true);
-              const response = await fetch("/api/recipe-invitations", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  recipeId: recipe.id,
-                  email: shareEmail
-                })
-              });
-              const result = (await response.json()) as {
-                shareId?: string;
-                inviteUrl?: string;
-                emailSent?: boolean;
-                emailError?: string;
-                error?: string;
-              };
-              if (response.ok && result.inviteUrl) {
-                setShareUrl(result.inviteUrl);
-                if (result.shareId) {
-                  setPrivateShares((current) => [
-                    {
-                      id: result.shareId!,
-                      recipient_email: shareEmail,
-                      active: true,
-                      accepted_at: null
-                    },
-                    ...current
-                  ]);
-                }
-                notify(
-                  result.emailSent
-                    ? "Private recipe invitation emailed."
-                    : result.emailError
-                      ? "Private recipe link prepared. Email could not be sent automatically."
-                      : "Private recipe invitation link prepared."
-                );
-              } else {
-                notify(result.error ?? "The invitation could not be created.");
-              }
-              setSharing(false);
-            }}
+            onClick={sharePrivately}
           >
             {sharing ? <LoaderCircle className="spin" size={16} /> : "Share"}
           </button>
@@ -1672,10 +1752,7 @@ function CommunityRecipeModal({
               <Globe2 size={20} color="#315c4a" />
               <div className="row-main">
                 <strong>{recipe.title}</strong>
-                <span>
-                  Shared by {recipe.attributionHousehold} ·{" "}
-                  {recipe.prepMinutes + recipe.cookMinutes} min
-                </span>
+                <span>Shared by {recipe.attributionHousehold}</span>
               </div>
               <button
                 className="primary-button"
@@ -1767,16 +1844,13 @@ function PantryScreen({ notify }: { notify: (message: string) => void }) {
       <div className="list-stack">
         {filtered.map((item) => (
           <article className="pantry-row card" key={item.id}>
-            <span className="aisle-dot" />
             <button
               className="row-main"
               type="button"
               onClick={() => setEditId(item.id)}
             >
               <strong>{item.name}</strong>
-              <span>
-                {quantityLabel(item.quantity, item.unit)} · {item.aisle}
-              </span>
+              <span>{quantityLabel(item.quantity, item.unit)}</span>
             </button>
             {item.needsConfirmation ? (
               <span className="confirmation-flag">Check amount</span>
@@ -1888,11 +1962,16 @@ function PantryItemModal({
             </label>
             <label>
               Unit
-              <input
+              <select
                 value={unit}
                 onChange={(event) => setUnit(event.target.value)}
-                placeholder="count, cups, oz"
-              />
+              >
+                {UNIT_OPTIONS.map((option) => (
+                  <option value={option.value} key={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
             </label>
           </div>
         ) : null}
@@ -1928,14 +2007,7 @@ function ShoppingScreen({ notify }: { notify: (message: string) => void }) {
   const list = state.shoppingList;
   const checked = list?.items.filter((item) => item.checked).length ?? 0;
   const total = list?.items.length ?? 0;
-  const grouped = useMemo(() => {
-    const map = new Map<GroceryAisle, ShoppingListItem[]>();
-    if (!list) return map;
-    for (const item of list.items) {
-      map.set(item.aisle, [...(map.get(item.aisle) ?? []), item]);
-    }
-    return map;
-  }, [list]);
+  const shoppingItems = list?.items ?? [];
 
   if (!list || list.stale) {
     return (
@@ -1970,14 +2042,16 @@ function ShoppingScreen({ notify }: { notify: (message: string) => void }) {
               className={`review-row card ${line.unresolved ? "unresolved" : ""}`}
               key={`${line.canonicalName}:${line.unit}`}
             >
-              <span className="aisle-dot" />
               <div className="row-main">
                 <strong>{line.name}</strong>
                 <div className="review-amounts">
                   <span>
                     Need{" "}
                     <strong>
-                      {formatQuantity(line.requiredQuantity)} {line.unit}
+                      {formatIngredientAmount({
+                        quantity: line.requiredQuantity,
+                        unit: line.unit
+                      })}
                     </strong>
                   </span>
                   <span>
@@ -1985,7 +2059,10 @@ function ShoppingScreen({ notify }: { notify: (message: string) => void }) {
                     <strong>
                       {line.availableQuantity === null
                         ? "unknown"
-                        : `${formatQuantity(line.availableQuantity)} ${line.unit}`}
+                        : formatIngredientAmount({
+                            quantity: line.availableQuantity,
+                            unit: line.unit
+                          })}
                     </strong>
                   </span>
                 </div>
@@ -2007,7 +2084,10 @@ function ShoppingScreen({ notify }: { notify: (message: string) => void }) {
               ) : line.allocatedQuantity ? (
                 <span className="cooked-badge">
                   <Check size={11} /> Pantry covers{" "}
-                  {formatQuantity(line.allocatedQuantity)}
+                  {formatIngredientAmount({
+                    quantity: line.allocatedQuantity,
+                    unit: line.unit
+                  })}
                 </span>
               ) : null}
             </article>
@@ -2107,38 +2187,29 @@ function ShoppingScreen({ notify }: { notify: (message: string) => void }) {
         </button>
       </div>
 
-      {[...grouped.entries()].map(([aisle, items]) => (
-        <section className="shopping-section" key={aisle}>
-          <h3>
-            <span className="aisle-dot" /> {aisle}
-          </h3>
-          <div>
-            {items.map((item) => (
-              <button
-                className={`shopping-row ${item.checked ? "checked" : ""}`}
-                type="button"
-                key={item.id}
-                onClick={() => toggleShoppingItem(item.id)}
-              >
-                <span className="shopping-check">
-                  {item.checked ? <Check size={16} /> : null}
-                </span>
-                <span className="row-main">
-                  <strong>{item.name}</strong>
-                  <span>
-                    {item.quantity === null
-                      ? item.qualitative ?? "as needed"
-                      : `${formatQuantity(item.quantity)} ${
-                          item.unit === "count" ? "" : item.unit
-                        }`}
-                    {item.manual ? " · added manually" : ""}
-                  </span>
-                </span>
-              </button>
-            ))}
-          </div>
-        </section>
-      ))}
+      <div className="list-stack">
+        {shoppingItems.map((item) => (
+          <button
+            className={`shopping-row ${item.checked ? "checked" : ""}`}
+            type="button"
+            key={item.id}
+            onClick={() => toggleShoppingItem(item.id)}
+          >
+            <span className="shopping-check">
+              {item.checked ? <Check size={16} /> : null}
+            </span>
+            <span className="row-main">
+              <strong>{item.name}</strong>
+              <span>
+                {item.quantity === null
+                  ? item.qualitative ?? "as needed"
+                  : formatIngredientAmount(item)}
+                {item.manual ? " · added manually" : ""}
+              </span>
+            </span>
+          </button>
+        ))}
+      </div>
 
       <div className="offline-note">
         <WifiOff size={17} />
@@ -2205,8 +2276,7 @@ function CompleteShoppingModal({
             <span className="row-main">
               <strong>{item.name}</strong>
               <span>
-                {formatQuantity(item.quantity)}{" "}
-                {item.unit === "count" ? "" : item.unit}
+                {formatIngredientAmount(item)}
               </span>
             </span>
           </button>
@@ -2420,11 +2490,17 @@ function CookingReviewModal({
           </label>
           <label>
             Unit
-            <input
+            <select
               value={unit}
               disabled={ingredientId !== "new"}
               onChange={(event) => setUnit(event.target.value)}
-            />
+            >
+              {UNIT_OPTIONS.map((option) => (
+                <option value={option.value} key={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
           </label>
         </div>
         {!quantity && kind !== "skipped" ? (
@@ -2467,9 +2543,7 @@ function CookingReviewModal({
                 {adjustment.name}: {adjustment.kind}{" "}
                 {adjustment.quantity === null
                   ? adjustment.qualitative
-                  : `${formatQuantity(adjustment.quantity)} ${
-                      adjustment.unit === "count" ? "" : adjustment.unit
-                    }`}
+                  : formatIngredientAmount(adjustment)}
               </strong>
               <button
                 className="mini-button"
@@ -2742,8 +2816,7 @@ function HouseholdScreen({ notify }: { notify: (message: string) => void }) {
           <Home size={23} color="#315c4a" />
           <h3>{state.household.name}</h3>
           <p>
-            Default plan: {state.household.defaultServings} servings · Week
-            starts {state.household.weekStartsOn === 1 ? "Monday" : "Sunday"}
+            Week starts {state.household.weekStartsOn === 1 ? "Monday" : "Sunday"}
           </p>
           {state.members.map((member) => (
             <div className="member-row" key={member.id}>

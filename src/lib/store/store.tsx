@@ -51,12 +51,8 @@ interface AppStore {
   loaded: boolean;
   error: string | null;
   refresh: () => Promise<void>;
-  scheduleRecipe: (date: string, recipeId: string, servings: number) => void;
-  scheduleSpecial: (
-    date: string,
-    kind: PlannedMeal["kind"],
-    servings?: number
-  ) => void;
+  scheduleRecipe: (date: string, recipeId: string) => void;
+  scheduleSpecial: (date: string, kind: PlannedMeal["kind"]) => void;
   removeMeal: (mealId: string) => void;
   addRecipe: (recipe: NewRecipe) => Promise<boolean>;
   toggleFavorite: (recipeId: string) => void;
@@ -178,16 +174,20 @@ export function AppStoreProvider({
       loaded: true,
       error,
       refresh,
-      scheduleRecipe(date, recipeId, servings) {
+      scheduleRecipe(date, recipeId) {
         void run("scheduleMeal", {
           date,
           kind: "recipe",
           recipeId,
-          servings
+          servings: state.household.defaultServings
         });
       },
-      scheduleSpecial(date, kind, servings = state.household.defaultServings) {
-        void run("scheduleMeal", { date, kind, servings });
+      scheduleSpecial(date, kind) {
+        void run("scheduleMeal", {
+          date,
+          kind,
+          servings: state.household.defaultServings
+        });
       },
       removeMeal(mealId) {
         void run("removeMeal", { mealId });

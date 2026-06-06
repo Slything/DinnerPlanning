@@ -290,7 +290,6 @@ export async function loadAppState(
       .from("shopping_list_items")
       .select("*")
       .eq("shopping_list_id", text(listRow.id))
-      .order("aisle")
       .order("name");
     if (itemError) throw itemError;
     shoppingList = {

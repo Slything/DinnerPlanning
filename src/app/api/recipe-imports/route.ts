@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { RecipeDraft } from "@/lib/domain/types";
 import {
   canonicalizeIngredient,
+  inferAisle,
   normalizeUnit
 } from "@/lib/domain/quantities";
 import {
@@ -168,7 +169,7 @@ ${combinedText || "Use the attached screenshots."}`
           unit: ingredient.unit,
           dimension: normalized.dimension,
           preparation: ingredient.preparation || undefined,
-          aisle: ingredient.aisle
+          aisle: inferAisle(ingredient.name)
         };
       })
     };

@@ -50,6 +50,30 @@ const UNIT_MAP: Record<
   jar: { unit: "jar", dimension: "package", factor: 1 }
 };
 
+export interface UnitOption {
+  value: string;
+  label: string;
+  dimension: UnitDimension;
+}
+
+export const UNIT_OPTIONS: UnitOption[] = [
+  { value: "count", label: "each", dimension: "count" },
+  { value: "tsp", label: "tsp", dimension: "volume" },
+  { value: "tbsp", label: "tbsp", dimension: "volume" },
+  { value: "cup", label: "cup", dimension: "volume" },
+  { value: "ml", label: "ml", dimension: "volume" },
+  { value: "l", label: "l", dimension: "volume" },
+  { value: "oz", label: "oz", dimension: "mass" },
+  { value: "lb", label: "lb", dimension: "mass" },
+  { value: "g", label: "g", dimension: "mass" },
+  { value: "kg", label: "kg", dimension: "mass" },
+  { value: "clove", label: "clove", dimension: "count" },
+  { value: "can", label: "can", dimension: "package" },
+  { value: "package", label: "package", dimension: "package" },
+  { value: "bunch", label: "bunch", dimension: "package" },
+  { value: "jar", label: "jar", dimension: "package" }
+];
+
 const FRACTION_GLYPHS: Record<string, string> = {
   "½": "1/2",
   "⅓": "1/3",
@@ -102,6 +126,14 @@ export function normalizeUnit(unit: string): {
   );
 }
 
+export function unitLabel(unit: string): string {
+  const normalized = unit.trim().toLowerCase();
+  const option = UNIT_OPTIONS.find((candidate) => candidate.value === normalized);
+  if (option) return option.label;
+  if (normalizeUnit(normalized).unit === "count") return "each";
+  return normalized || "each";
+}
+
 export function toBaseQuantity(
   quantity: number | null,
   unit: string
@@ -147,14 +179,25 @@ export function canonicalizeIngredient(name: string): string {
     .replace(/\bcloves\b/, "clove");
 }
 
-export function scaleQuantity(
-  quantity: number | null,
-  recipeYield: number,
-  servings: number
-): number | null {
-  if (quantity === null) return null;
-  if (recipeYield <= 0) return quantity;
-  return quantity * (servings / recipeYield);
+export function formatIngredientAmount(
+  ingredient: Pick<IngredientAmount, "quantity" | "unit" | "qualitative">
+): string {
+  if (ingredient.quantity === null) {
+    return ingredient.qualitative ?? "as needed";
+  }
+  const quantity = formatQuantity(ingredient.quantity);
+  const unit = ingredient.unit === "count" ? "" : unitLabel(ingredient.unit);
+  return [quantity, unit].filter(Boolean).join(" ");
+}
+
+export function formatIngredientLine(
+  ingredient: Pick<
+    IngredientAmount,
+    "name" | "quantity" | "unit" | "qualitative"
+  >
+): string {
+  const amount = formatIngredientAmount(ingredient);
+  return amount ? `${amount} ${ingredient.name}` : ingredient.name;
 }
 
 export function formatQuantity(quantity: number | null): string {

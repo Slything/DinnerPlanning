@@ -7,7 +7,6 @@ import { SegmentedControl } from "@/components/ui";
 export function OnboardingForm({ displayName }: { displayName: string }) {
   const [mode, setMode] = useState<"create" | "join">("create");
   const [name, setName] = useState(`${displayName}'s household`);
-  const [defaultServings, setDefaultServings] = useState("4");
   const [weekStartsOn, setWeekStartsOn] = useState<"0" | "1">("0");
   const [invite, setInvite] = useState("");
   const [message, setMessage] = useState("");
@@ -22,7 +21,6 @@ export function OnboardingForm({ displayName }: { displayName: string }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name,
-        defaultServings: Number(defaultServings),
         weekStartsOn: Number(weekStartsOn)
       })
     });
@@ -68,17 +66,6 @@ export function OnboardingForm({ displayName }: { displayName: string }) {
                 value={name}
                 onChange={(event) => setName(event.target.value)}
                 maxLength={120}
-                required
-              />
-            </label>
-            <label>
-              Default servings
-              <input
-                type="number"
-                min={1}
-                max={30}
-                value={defaultServings}
-                onChange={(event) => setDefaultServings(event.target.value)}
                 required
               />
             </label>

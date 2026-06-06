@@ -35,6 +35,7 @@ export interface HouseholdMember {
 export interface IngredientAmount {
   id: ID;
   catalogId?: ID;
+  saveToCatalog?: boolean;
   name: string;
   canonicalName: string;
   quantity: number | null;
@@ -61,8 +62,6 @@ export interface IngredientCatalogEntry {
 
 export type RecipeSortMode =
   | "least-recent"
-  | "fastest"
-  | "slowest"
   | "newest"
   | "alphabetical";
 

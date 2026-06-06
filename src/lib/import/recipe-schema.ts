@@ -4,16 +4,7 @@ export const importedIngredientSchema = z.object({
   name: z.string().min(1),
   quantity: z.number().nullable(),
   unit: z.string(),
-  preparation: z.string(),
-  aisle: z.enum([
-    "Produce",
-    "Meat",
-    "Dairy",
-    "Bakery",
-    "Pantry",
-    "Frozen",
-    "Other"
-  ])
+  preparation: z.string()
 });
 
 export const importedRecipeSchema = z.object({
@@ -62,24 +53,12 @@ export const importedRecipeJsonSchema = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["name", "quantity", "unit", "preparation", "aisle"],
+        required: ["name", "quantity", "unit", "preparation"],
         properties: {
           name: { type: "string" },
           quantity: { type: ["number", "null"] },
           unit: { type: "string" },
-          preparation: { type: "string" },
-          aisle: {
-            type: "string",
-            enum: [
-              "Produce",
-              "Meat",
-              "Dairy",
-              "Bakery",
-              "Pantry",
-              "Frozen",
-              "Other"
-            ]
-          }
+          preparation: { type: "string" }
         }
       }
     },

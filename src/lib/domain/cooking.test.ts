@@ -48,6 +48,11 @@ const meal: PlannedMeal = {
   servings: 4
 };
 
+const largeMeal: PlannedMeal = {
+  ...meal,
+  servings: 8
+};
+
 function pantry(
   id: string,
   name: string,
@@ -95,6 +100,19 @@ describe("cooking feedback", () => {
         (ingredient) => ingredient.id === "onion"
       )?.quantity
     ).toBe(1.5);
+  });
+
+  it("uses saved recipe quantities without serving scaling", () => {
+    const result = markMealCooked({
+      householdId,
+      memberId,
+      meal: largeMeal,
+      recipe: testRecipe(),
+      pantry: [pantry("stock-onion", "Onion", 3, "count", "count")],
+      notes: "",
+      adjustments: []
+    });
+    expect(result.pantry[0].quantity).toBe(2);
   });
 
   it("uses future-only milk feedback for the proposal but not current extra consumption", () => {

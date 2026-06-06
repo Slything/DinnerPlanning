@@ -4,7 +4,7 @@ import { requireUser } from "@/lib/supabase/server";
 
 const schema = z.object({
   name: z.string().trim().min(1).max(120),
-  defaultServings: z.number().int().min(1).max(30),
+  defaultServings: z.number().int().min(1).max(30).optional(),
   weekStartsOn: z.union([z.literal(0), z.literal(1)])
 });
 
@@ -20,7 +20,7 @@ export async function POST(request: Request) {
     }
     const { data, error } = await supabase.rpc("create_household", {
       household_name: input.name,
-      household_default_servings: input.defaultServings,
+      household_default_servings: input.defaultServings ?? 4,
       household_week_starts_on: input.weekStartsOn,
       member_display_name: user.displayName
     });

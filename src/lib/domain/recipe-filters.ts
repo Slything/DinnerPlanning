@@ -8,7 +8,7 @@ export interface RecipeFilters {
   query: string;
   favoritesOnly: boolean;
   neverCookedOnly: boolean;
-  maxMinutes: number | null;
+  quickCookOnly: boolean;
   sort: RecipeSortMode;
 }
 
@@ -47,22 +47,18 @@ export function filterAndSortRecipes(
       ]
         .join(" ")
         .toLowerCase();
-      const totalMinutes = recipe.prepMinutes + recipe.cookMinutes;
+      const isQuickCook = recipe.tags.some(
+        (tag) => tag.toLowerCase() === "quick cook"
+      );
       return (
         (!query || haystack.includes(query)) &&
         (!filters.favoritesOnly || recipe.favorite) &&
         (!filters.neverCookedOnly || !lastCooked.get(recipe.id)) &&
-        (filters.maxMinutes === null || totalMinutes <= filters.maxMinutes)
+        (!filters.quickCookOnly || isQuickCook)
       );
     })
     .sort((left, right) => {
-      const leftMinutes = left.prepMinutes + left.cookMinutes;
-      const rightMinutes = right.prepMinutes + right.cookMinutes;
       switch (filters.sort) {
-        case "fastest":
-          return leftMinutes - rightMinutes || left.title.localeCompare(right.title);
-        case "slowest":
-          return rightMinutes - leftMinutes || left.title.localeCompare(right.title);
         case "newest":
           return right.createdAt.localeCompare(left.createdAt);
         case "alphabetical":
@@ -80,31 +76,3 @@ export function filterAndSortRecipes(
       }
     });
 }
-
-export function searchIngredientCatalog<T extends {
-  displayName: string;
-  canonicalName: string;
-  aliases: string[];
-  usageCount: number;
-  lastUsedAt: string;
-}>(catalog: T[], query: string, limit = 8): T[] {
-  const normalized = query.trim().toLowerCase();
-  if (!normalized) return [];
-  return catalog
-    .filter((entry) =>
-      [entry.displayName, entry.canonicalName, ...entry.aliases].some((value) =>
-        value.toLowerCase().includes(normalized)
-      )
-    )
-    .sort((left, right) => {
-      const leftStarts = left.displayName.toLowerCase().startsWith(normalized);
-      const rightStarts = right.displayName.toLowerCase().startsWith(normalized);
-      if (leftStarts !== rightStarts) return leftStarts ? -1 : 1;
-      return (
-        right.usageCount - left.usageCount ||
-        right.lastUsedAt.localeCompare(left.lastUsedAt)
-      );
-    })
-    .slice(0, limit);
-}
-

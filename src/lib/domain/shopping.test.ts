@@ -53,7 +53,7 @@ function recipe(
   };
 }
 
-function plan(recipeIds: string[]): WeeklyPlan {
+function plan(recipeIds: string[], servings = 4): WeeklyPlan {
   return {
     id: "plan",
     householdId,
@@ -65,7 +65,7 @@ function plan(recipeIds: string[]): WeeklyPlan {
       date: `2026-06-${String(index + 7).padStart(2, "0")}`,
       kind: "recipe",
       recipeId,
-      servings: 4
+      servings
     }))
   };
 }
@@ -95,6 +95,12 @@ describe("shopping list generation", () => {
     expect(list.items).toHaveLength(1);
     expect(list.items[0].quantity).toBe(1);
     expect(list.items[0].unit).toBe("count");
+  });
+
+  it("uses saved recipe quantities without serving scaling", () => {
+    const recipes = [recipe("recipe-a", "Onion", 1, "count")];
+    const list = generateShoppingList(plan(["recipe-a"], 8), recipes, []);
+    expect(list.items[0].quantity).toBe(1);
   });
 
   it("subtracts exact pantry stock from combined requirements", () => {

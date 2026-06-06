@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   canonicalizeIngredient,
+  formatIngredientLine,
   formatQuantity,
   normalizeUnit,
   parseQuantity,
-  scaleQuantity,
+  unitLabel,
   toBaseQuantity
 } from "@/lib/domain/quantities";
 
@@ -23,15 +24,21 @@ describe("quantity helpers", () => {
     expect(normalizeUnit("can").dimension).toBe("package");
   });
 
-  it("scales quantities by planned servings", () => {
-    expect(scaleQuantity(2, 4, 6)).toBe(3);
-    expect(scaleQuantity(null, 4, 6)).toBeNull();
-  });
-
   it("formats household-friendly fractions", () => {
     expect(formatQuantity(0.5)).toBe("1/2");
     expect(formatQuantity(1.5)).toBe("1 1/2");
     expect(formatQuantity(2)).toBe("2");
+  });
+
+  it("hides count behind household-friendly unit labels", () => {
+    expect(unitLabel("count")).toBe("each");
+    expect(
+      formatIngredientLine({
+        name: "onion",
+        quantity: 0.5,
+        unit: "count"
+      })
+    ).toBe("1/2 onion");
   });
 
   it("canonicalizes common ingredient wording", () => {
