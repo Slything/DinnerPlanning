@@ -41,7 +41,8 @@ prefix either with `NEXT_PUBLIC_`.
 3. Add local and deployed `/auth/callback` URLs to the Auth redirect allow
    list.
 4. Configure Auth email delivery and confirmation settings.
-5. Add the environment values to `.env.local` and Vercel.
+5. Add the environment values to `.env.local` for local development and to
+   Railway service variables for production.
 
 New users confirm their email, then create a household or accept a seven-day,
 email-bound invitation. Production households start empty.
@@ -55,6 +56,20 @@ import can temporarily use another compatible model ID.
 
 AI output is always returned as an editable draft and is never saved without
 human review.
+
+For Railway, OpenRouter does not have a separate integration panel. Open the
+deployed app service, go to **Variables**, and add:
+
+```bash
+OPENROUTER_API_KEY=...
+OPENROUTER_DEFAULT_MODEL=...
+NEXT_PUBLIC_APP_URL=https://your-railway-domain
+```
+
+You can add these one at a time with **New Variable** or paste them with
+**Raw Editor**. After saving, review/deploy Railway's staged changes so the
+running app receives the variables. `OPENROUTER_API_KEY` must stay server-only;
+do not rename it to `NEXT_PUBLIC_OPENROUTER_API_KEY`.
 
 ## Verification
 

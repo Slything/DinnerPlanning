@@ -19,6 +19,15 @@ describe("OpenRouter extraction", () => {
 });
 
 describe("OpenRouter model discovery", () => {
+  it("explains Railway setup when the API key is missing", async () => {
+    await expect(listOpenRouterModels(true)).rejects.toThrow(
+      "OPENROUTER_API_KEY is missing"
+    );
+    await expect(listOpenRouterModels(true)).rejects.toThrow(
+      "Railway"
+    );
+  });
+
   it("keeps structured models and validates image support", async () => {
     process.env.OPENROUTER_API_KEY = "test-key";
     vi.stubGlobal(
@@ -63,6 +72,6 @@ describe("OpenRouter model discovery", () => {
     ).rejects.toThrow("does not accept screenshot");
     await expect(
       requireCompatibleModel("custom/missing", false)
-    ).rejects.toThrow("not available");
+    ).rejects.toThrow("structured-output support");
   });
 });

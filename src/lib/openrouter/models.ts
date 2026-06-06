@@ -3,6 +3,22 @@ import type { AiModelOption } from "@/lib/domain/types";
 const MODELS_URL = "https://openrouter.ai/api/v1/models";
 const CACHE_MS = 60 * 60 * 1000;
 
+export const OPENROUTER_RAILWAY_HINT =
+  "In Railway, open the app service Variables tab, add OPENROUTER_API_KEY, OPENROUTER_DEFAULT_MODEL, and NEXT_PUBLIC_APP_URL, then review and deploy the staged changes. Keep OPENROUTER_API_KEY server-only; do not prefix it with NEXT_PUBLIC_.";
+
+export class OpenRouterConfigurationError extends Error {
+  setupRequired = true;
+  code = "openrouter_configuration";
+
+  constructor(
+    message: string,
+    public missingVariables: string[]
+  ) {
+    super(`${message} ${OPENROUTER_RAILWAY_HINT}`);
+    this.name = "OpenRouterConfigurationError";
+  }
+}
+
 interface OpenRouterModel {
   id: string;
   name?: string;
@@ -27,19 +43,25 @@ let cache:
 export async function listOpenRouterModels(
   force = false
 ): Promise<AiModelOption[]> {
-  if (!force && cache && cache.expiresAt > Date.now()) return cache.models;
-  if (!process.env.OPENROUTER_API_KEY) {
-    throw new Error("OPENROUTER_API_KEY is not configured.");
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) {
+    throw new OpenRouterConfigurationError(
+      "OpenRouter is not configured because OPENROUTER_API_KEY is missing.",
+      ["OPENROUTER_API_KEY"]
+    );
   }
+  if (!force && cache && cache.expiresAt > Date.now()) return cache.models;
   const response = await fetch(MODELS_URL, {
     headers: {
-      Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+      Authorization: `Bearer ${apiKey}`,
       Accept: "application/json"
     },
     next: { revalidate: 3600 }
   });
   if (!response.ok) {
-    throw new Error(`OpenRouter model discovery failed (${response.status}).`);
+    throw new Error(
+      `OpenRouter model discovery failed (${response.status}). Confirm OPENROUTER_API_KEY is valid, your OpenRouter account has access, and Railway has redeployed after variable changes.`
+    );
   }
   const payload = (await response.json()) as { data?: OpenRouterModel[] };
   const models = (payload.data ?? [])
@@ -73,7 +95,7 @@ export async function requireCompatibleModel(
   );
   if (!model) {
     throw new Error(
-      `The model "${modelId}" is not available with structured output support.`
+      `The model "${modelId}" is not available with structured-output support. Choose a model from the dropdown or set OPENROUTER_DEFAULT_MODEL to a structured-output model returned by /api/ai/models.`
     );
   }
   if (imagesRequired && !model.supportsImages) {

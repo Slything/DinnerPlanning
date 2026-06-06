@@ -714,6 +714,12 @@ interface IngredientEditorValue {
   saveToCatalog?: boolean;
 }
 
+interface OpenRouterSetupNotice {
+  error: string;
+  missingVariables?: string[];
+  railwayHint?: string;
+}
+
 function emptyIngredient(): IngredientEditorValue {
   return {
     id: crypto.randomUUID(),
@@ -756,6 +762,8 @@ function RecipeEditorModal({
   const [modelId, setModelId] = useState(state.household.aiModelId ?? "");
   const [modelsLoading, setModelsLoading] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [importSetup, setImportSetup] =
+    useState<OpenRouterSetupNotice | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const ingredientSuggestions = useMemo(
     () => mergedIngredientCatalog(state.ingredientCatalog),
@@ -778,6 +786,7 @@ function RecipeEditorModal({
     setImportText("");
     setImages([]);
     setModelId(state.household.aiModelId ?? "");
+    setImportSetup(null);
     setWarnings([]);
   }
 
@@ -789,8 +798,22 @@ function RecipeEditorModal({
         const result = (await response.json()) as {
           models?: AiModelOption[];
           error?: string;
+          setupRequired?: boolean;
+          missingVariables?: string[];
+          railwayHint?: string;
         };
-        if (!response.ok) throw new Error(result.error);
+        if (!response.ok) {
+          if (result.setupRequired) {
+            setImportSetup({
+              error: result.error ?? "OpenRouter setup is incomplete.",
+              missingVariables: result.missingVariables,
+              railwayHint: result.railwayHint
+            });
+            return;
+          }
+          throw new Error(result.error);
+        }
+        setImportSetup(null);
         setModels(result.models ?? []);
         if (!modelId && result.models?.[0]) setModelId(result.models[0].id);
       })
@@ -839,9 +862,22 @@ function RecipeEditorModal({
         })
       });
       if (!response.ok) {
-        const result = (await response.json()) as { error?: string };
+        const result = (await response.json()) as {
+          error?: string;
+          setupRequired?: boolean;
+          missingVariables?: string[];
+          railwayHint?: string;
+        };
+        if (result.setupRequired) {
+          setImportSetup({
+            error: result.error ?? "OpenRouter setup is incomplete.",
+            missingVariables: result.missingVariables,
+            railwayHint: result.railwayHint
+          });
+        }
         throw new Error(result.error ?? "Import failed");
       }
+      setImportSetup(null);
       const draft = (await response.json()) as {
         title: string;
         description: string;
@@ -984,6 +1020,24 @@ function RecipeEditorModal({
               </p>
             </div>
           </div>
+          {importSetup ? (
+            <div className="warning-list import-setup-callout">
+              <CircleAlert size={19} />
+              <div>
+                <strong>OpenRouter setup needed</strong>
+                <p>{importSetup.error}</p>
+                {importSetup.missingVariables?.length ? (
+                  <p>
+                    Missing:{" "}
+                    <code>{importSetup.missingVariables.join(", ")}</code>
+                  </p>
+                ) : null}
+                {importSetup.railwayHint ? (
+                  <p>{importSetup.railwayHint}</p>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
           <label>
             Recipe or social link
             <input
@@ -1035,7 +1089,7 @@ function RecipeEditorModal({
             <span>
               {images.length
                 ? `${images.length} screenshot${images.length === 1 ? "" : "s"} ready`
-                : "Add up to four recipe or social-media screenshots."}
+                : "Optional for now. Text and recipe links are the first production-ready import path."}
             </span>
           </label>
           <button

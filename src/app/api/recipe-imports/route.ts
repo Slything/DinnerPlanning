@@ -15,10 +15,16 @@ import {
   importedRecipeJsonSchema,
 } from "@/lib/import/recipe-schema";
 import { parseOpenRouterRecipeContent } from "@/lib/openrouter/extraction";
-import { requireCompatibleModel } from "@/lib/openrouter/models";
+import {
+  OPENROUTER_RAILWAY_HINT,
+  OpenRouterConfigurationError,
+  requireCompatibleModel
+} from "@/lib/openrouter/models";
 import { requireUser } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
+const OPENROUTER_COMPLETIONS_URL =
+  "https://openrouter.ai/api/v1/chat/completions";
 
 const requestSchema = z.object({
   url: z.string().url().optional(),
@@ -46,7 +52,12 @@ export async function POST(request: Request) {
     }
     if (!process.env.OPENROUTER_API_KEY) {
       return NextResponse.json(
-        { error: "OPENROUTER_API_KEY is not configured." },
+        {
+          error: `OpenRouter is not configured because OPENROUTER_API_KEY is missing. ${OPENROUTER_RAILWAY_HINT}`,
+          setupRequired: true,
+          missingVariables: ["OPENROUTER_API_KEY"],
+          railwayHint: OPENROUTER_RAILWAY_HINT
+        },
         { status: 503 }
       );
     }
@@ -65,8 +76,9 @@ export async function POST(request: Request) {
       householdRelation?.ai_model_id ||
       process.env.OPENROUTER_DEFAULT_MODEL;
     if (!modelId) {
-      throw new Error(
-        "Choose an OpenRouter model or configure OPENROUTER_DEFAULT_MODEL."
+      throw new OpenRouterConfigurationError(
+        "Choose an OpenRouter model in the importer or configure OPENROUTER_DEFAULT_MODEL.",
+        ["OPENROUTER_DEFAULT_MODEL"]
       );
     }
     await requireCompatibleModel(modelId, parsed.images.length > 0);
@@ -117,7 +129,7 @@ ${combinedText || "Use the attached screenshots."}`
     const appUrl =
       process.env.NEXT_PUBLIC_APP_URL ?? new URL(request.url).origin;
     const response = await fetch(
-      "https://openrouter.ai/api/v1/chat/completions",
+      OPENROUTER_COMPLETIONS_URL,
       {
         method: "POST",
         headers: {
@@ -147,9 +159,11 @@ ${combinedText || "Use the attached screenshots."}`
     );
     const responsePayload = (await response.json()) as OpenRouterResponse;
     if (!response.ok) {
-      throw new Error(
+      const providerMessage =
         responsePayload.error?.message ??
-          `OpenRouter request failed (${response.status}).`
+        `OpenRouter recipe extraction failed (${response.status}).`;
+      throw new Error(
+        `${providerMessage} Confirm the selected model supports structured output and your OpenRouter key has credits.`
       );
     }
     const output = responsePayload.choices?.[0]?.message?.content;
@@ -175,6 +189,17 @@ ${combinedText || "Use the attached screenshots."}`
     };
     return NextResponse.json(draft);
   } catch (error) {
+    if (error instanceof OpenRouterConfigurationError) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          setupRequired: true,
+          missingVariables: error.missingVariables,
+          railwayHint: OPENROUTER_RAILWAY_HINT
+        },
+        { status: 503 }
+      );
+    }
     return NextResponse.json(
       {
         error:

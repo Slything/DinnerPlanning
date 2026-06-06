@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import { listOpenRouterModels } from "@/lib/openrouter/models";
+import {
+  OPENROUTER_RAILWAY_HINT,
+  OpenRouterConfigurationError,
+  listOpenRouterModels
+} from "@/lib/openrouter/models";
 import { requireUser } from "@/lib/supabase/server";
 
 export async function GET() {
@@ -10,6 +14,17 @@ export async function GET() {
     }
     return NextResponse.json({ models: await listOpenRouterModels() });
   } catch (error) {
+    if (error instanceof OpenRouterConfigurationError) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          setupRequired: true,
+          missingVariables: error.missingVariables,
+          railwayHint: OPENROUTER_RAILWAY_HINT
+        },
+        { status: 503 }
+      );
+    }
     return NextResponse.json(
       {
         error:
