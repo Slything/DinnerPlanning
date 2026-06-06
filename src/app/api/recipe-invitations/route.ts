@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { appUrl, authCallbackUrl } from "@/lib/app-url";
 import { createAdminSupabaseClient, requireUser } from "@/lib/supabase/server";
 
 const schema = z.object({
@@ -56,11 +57,10 @@ export async function POST(request: Request) {
     if (error) throw error;
     const share = Array.isArray(data) ? data[0] : data;
     if (!share?.share_token) throw new Error("Recipe invitation was not created.");
-    const appUrl =
-      process.env.NEXT_PUBLIC_APP_URL ?? new URL(request.url).origin;
-    const inviteUrl = `${appUrl.replace(/\/$/, "")}/recipe-invite/${
-      share.share_token
-    }`;
+    const requestOrigin = new URL(request.url).origin;
+    const invitePath = `/recipe-invite/${share.share_token}`;
+    const inviteUrl = appUrl(invitePath, requestOrigin);
+    const emailRedirectUrl = authCallbackUrl(invitePath, requestOrigin);
     let emailSent = false;
     let emailError: string | undefined;
     if (!admin) {
@@ -80,7 +80,7 @@ export async function POST(request: Request) {
         if (!accountExists) {
           const { error: inviteError } =
             await admin.auth.admin.inviteUserByEmail(normalizedEmail, {
-              redirectTo: inviteUrl
+              redirectTo: emailRedirectUrl
             });
           if (inviteError) emailError = inviteError.message;
           else emailSent = true;

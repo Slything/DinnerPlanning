@@ -3,6 +3,7 @@
 import { LoaderCircle, Mail, Utensils } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { authCallbackUrl } from "@/lib/app-url";
 import { createClient } from "@/lib/supabase/client";
 
 export default function AuthPage() {
@@ -20,9 +21,16 @@ export default function AuthPage() {
     const next = params.get("next");
     const invitedEmail = params.get("email");
     const suppliedMessage = params.get("message");
+    const hashParams = new URLSearchParams(window.location.hash.slice(1));
+    const errorDescription =
+      hashParams.get("error_description") ?? hashParams.get("error");
     if (next?.startsWith("/") && !next.startsWith("//")) setNextPath(next);
     if (invitedEmail) setEmail(invitedEmail);
-    if (suppliedMessage) setMessage(suppliedMessage);
+    if (errorDescription) {
+      setMessage(
+        `${errorDescription}. The email link may have expired, already been used, or be pointing to a URL that is not allowed in Supabase.`
+      );
+    } else if (suppliedMessage) setMessage(suppliedMessage);
   }, []);
 
   async function submit(event: React.FormEvent) {
@@ -39,7 +47,7 @@ export default function AuthPage() {
         password,
         options: {
           data: { display_name: displayName },
-          emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`
+          emailRedirectTo: authCallbackUrl(nextPath)
         }
       });
       setMessage(

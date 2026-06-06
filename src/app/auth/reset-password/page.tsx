@@ -1,7 +1,8 @@
 "use client";
 
 import { KeyRound, LoaderCircle } from "lucide-react";
-import { useState } from "react";
+import Link from "next/link";
+import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 export default function ResetPasswordPage() {
@@ -9,6 +10,21 @@ export default function ResetPasswordPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(true);
+  const [hasResetSession, setHasResetSession] = useState(false);
+
+  useEffect(() => {
+    const supabase = createClient();
+    if (!supabase) {
+      setMessage("Gather & Graze is not connected to Supabase yet.");
+      setCheckingSession(false);
+      return;
+    }
+    void supabase.auth
+      .getSession()
+      .then(({ data }) => setHasResetSession(Boolean(data.session)))
+      .finally(() => setCheckingSession(false));
+  }, []);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -37,6 +53,18 @@ export default function ResetPasswordPage() {
         <div className="brand-mark auth-mark">G</div>
         <p className="eyebrow">Gather &amp; Graze</p>
         <h1>Choose a new password</h1>
+        {!checkingSession && !hasResetSession ? (
+          <>
+            <div className="auth-message">
+              This reset link is expired, already used, or did not create a
+              valid session. Request a fresh password reset email and use the
+              newest link.
+            </div>
+            <Link href="/auth/forgot-password" className="secondary-button">
+              Request a new reset link
+            </Link>
+          </>
+        ) : null}
         <form className="form-grid" onSubmit={submit}>
           <label>
             New password
@@ -61,7 +89,10 @@ export default function ResetPasswordPage() {
             />
           </label>
           {message ? <div className="auth-message">{message}</div> : null}
-          <button className="primary-button" disabled={loading}>
+          <button
+            className="primary-button"
+            disabled={loading || checkingSession || !hasResetSession}
+          >
             {loading ? (
               <LoaderCircle className="spin" size={17} />
             ) : (

@@ -38,8 +38,16 @@ prefix either with `NEXT_PUBLIC_`.
 
 1. Create a Supabase project.
 2. Apply every SQL file in `supabase/migrations` in numeric order.
-3. Add local and deployed `/auth/callback` URLs to the Auth redirect allow
-   list.
+3. Configure Supabase Auth URLs:
+   - Site URL:
+     `https://dinnerplanning-production.up.railway.app`
+   - Redirect URLs:
+     `https://dinnerplanning-production.up.railway.app/auth/callback`
+     `https://dinnerplanning-production.up.railway.app/auth/callback**`
+     `https://dinnerplanning-production.up.railway.app/invite/**`
+     `https://dinnerplanning-production.up.railway.app/recipe-invite/**`
+     `http://localhost:3000/auth/callback`
+     `http://localhost:3000/auth/callback**`
 4. Configure Auth email delivery and confirmation settings.
 5. Add the environment values to `.env.local` for local development and to
    Railway service variables for production.
@@ -63,7 +71,7 @@ deployed app service, go to **Variables**, and add:
 ```bash
 OPENROUTER_API_KEY=...
 OPENROUTER_DEFAULT_MODEL=google/gemini-2.5-flash-lite
-NEXT_PUBLIC_APP_URL=https://your-railway-domain
+NEXT_PUBLIC_APP_URL=https://dinnerplanning-production.up.railway.app
 ```
 
 You can add these one at a time with **New Variable** or paste them with
@@ -86,6 +94,41 @@ update public.households
 set ai_model_id = null
 where ai_model_id = 'ai21/jamba-large-1.7';
 ```
+
+## Auth link troubleshooting
+
+Supabase confirmation, reset-password, and invite email templates should use
+the default `{{ .ConfirmationURL }}` link. If a user is stuck after a failed
+signup or password reset, check the exact email in Supabase SQL:
+
+```sql
+select id, email, email_confirmed_at, confirmed_at, created_at
+from auth.users
+where lower(email) = lower('sister@example.com');
+
+select id, provider, identity_data
+from auth.identities
+where lower(identity_data->>'email') = lower('sister@example.com');
+
+select id, user_id, email, household_id
+from public.household_members
+where lower(email::text) = lower('sister@example.com');
+
+select id, email, accepted_at, expires_at
+from public.household_invitations
+where lower(email::text) = lower('sister@example.com');
+```
+
+If only an unused pending household invite remains, clear it:
+
+```sql
+delete from public.household_invitations
+where lower(email::text) = lower('sister@example.com')
+  and accepted_at is null;
+```
+
+If `auth.users` still contains the address, delete that user from Supabase
+Authentication → Users, wait a minute, and retry signup.
 
 ## Verification
 
