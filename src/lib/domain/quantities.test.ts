@@ -5,6 +5,7 @@ import {
   formatQuantity,
   normalizeUnit,
   parseQuantity,
+  resolveUnitInput,
   unitLabel,
   toBaseQuantity
 } from "@/lib/domain/quantities";
@@ -24,6 +25,22 @@ describe("quantity helpers", () => {
     expect(normalizeUnit("can").dimension).toBe("package");
   });
 
+  it("resolves package unit aliases while keeping friendly recipe units", () => {
+    expect(resolveUnitInput("each")).toEqual({
+      unit: "count",
+      dimension: "count"
+    });
+    expect(resolveUnitInput("boxes")).toEqual({
+      unit: "box",
+      dimension: "package"
+    });
+    expect(resolveUnitInput("cup")).toEqual({
+      unit: "cup",
+      dimension: "volume"
+    });
+    expect(toBaseQuantity(2, "boxes").unit).toBe("box");
+  });
+
   it("formats household-friendly fractions", () => {
     expect(formatQuantity(0.5)).toBe("1/2");
     expect(formatQuantity(1.5)).toBe("1 1/2");
@@ -39,6 +56,13 @@ describe("quantity helpers", () => {
         unit: "count"
       })
     ).toBe("1/2 onion");
+    expect(
+      formatIngredientLine({
+        name: "garlic",
+        quantity: 3,
+        unit: "clove"
+      })
+    ).toBe("3 cloves garlic");
   });
 
   it("canonicalizes common ingredient wording", () => {

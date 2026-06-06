@@ -3,6 +3,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
   within
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -143,5 +144,99 @@ describe("DinnerPlannerApp recipe importing", () => {
 
     expect(modelInput).toHaveValue("");
     expect(modelInput).toHaveAttribute("placeholder", "Use app default");
+  });
+});
+
+describe("DinnerPlannerApp ingredient entry", () => {
+  it("allows multi-word ingredient typing before cleanup runs", async () => {
+    render(
+      <AppStoreProvider initialState={initialState}>
+        <DinnerPlannerApp />
+      </AppStoreProvider>
+    );
+
+    openRecipesTab();
+    await screen.findByRole("heading", { name: "Recipe Book" });
+    openAddRecipeModal();
+    const dialog = await screen.findByRole("dialog", { name: "Add a recipe" });
+    const ingredientInput = within(dialog).getAllByPlaceholderText(
+      "Ingredient"
+    )[0] as HTMLInputElement;
+
+    fireEvent.change(ingredientInput, { target: { value: "Garlic" } });
+    fireEvent.change(ingredientInput, { target: { value: "Garlic " } });
+
+    expect(ingredientInput).toHaveValue("Garlic ");
+
+    fireEvent.change(ingredientInput, { target: { value: "Garlic Bread" } });
+    expect(ingredientInput).toHaveValue("Garlic Bread");
+
+    fireEvent.blur(ingredientInput);
+    expect(ingredientInput).toHaveValue("Garlic bread");
+  });
+
+  it("saves a chosen package unit instead of replacing it with a catalog default", async () => {
+    let capturedPayload: unknown;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) === "/api/app-actions") {
+          capturedPayload = JSON.parse(String(init?.body));
+          return new Response(JSON.stringify({ state: initialState }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+        throw new Error(`Unexpected fetch to ${String(input)}`);
+      })
+    );
+
+    render(
+      <AppStoreProvider initialState={initialState}>
+        <DinnerPlannerApp />
+      </AppStoreProvider>
+    );
+
+    openRecipesTab();
+    await screen.findByRole("heading", { name: "Recipe Book" });
+    openAddRecipeModal();
+    const dialog = await screen.findByRole("dialog", { name: "Add a recipe" });
+
+    fireEvent.change(within(dialog).getByLabelText("Recipe name"), {
+      target: { value: "Pasta night" }
+    });
+    fireEvent.change(within(dialog).getAllByPlaceholderText("Qty")[0], {
+      target: { value: "1" }
+    });
+    fireEvent.change(within(dialog).getAllByPlaceholderText("Unit")[0], {
+      target: { value: "box" }
+    });
+    fireEvent.change(within(dialog).getAllByPlaceholderText("Ingredient")[0], {
+      target: { value: "Pasta" }
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save recipe" }));
+
+    await waitFor(() => expect(capturedPayload).toBeDefined());
+
+    const request = capturedPayload as {
+      payload: {
+        recipe: {
+          ingredients: Array<{
+            name: string;
+            canonicalName: string;
+            quantity: number;
+            unit: string;
+            dimension: string;
+          }>;
+        };
+      };
+    };
+    expect(request.payload.recipe.ingredients[0]).toMatchObject({
+      name: "Pasta",
+      canonicalName: "pasta",
+      quantity: 1,
+      unit: "box",
+      dimension: "package"
+    });
   });
 });

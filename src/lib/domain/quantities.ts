@@ -44,35 +44,133 @@ const UNIT_MAP: Record<
   kg: { unit: "g", dimension: "mass", factor: 1000 },
   can: { unit: "can", dimension: "package", factor: 1 },
   cans: { unit: "can", dimension: "package", factor: 1 },
+  box: { unit: "box", dimension: "package", factor: 1 },
+  boxes: { unit: "box", dimension: "package", factor: 1 },
+  bag: { unit: "bag", dimension: "package", factor: 1 },
+  bags: { unit: "bag", dimension: "package", factor: 1 },
+  bottle: { unit: "bottle", dimension: "package", factor: 1 },
+  bottles: { unit: "bottle", dimension: "package", factor: 1 },
+  carton: { unit: "carton", dimension: "package", factor: 1 },
+  cartons: { unit: "carton", dimension: "package", factor: 1 },
+  container: { unit: "container", dimension: "package", factor: 1 },
+  containers: { unit: "container", dimension: "package", factor: 1 },
+  loaf: { unit: "loaf", dimension: "package", factor: 1 },
+  loaves: { unit: "loaf", dimension: "package", factor: 1 },
+  stick: { unit: "stick", dimension: "package", factor: 1 },
+  sticks: { unit: "stick", dimension: "package", factor: 1 },
+  slice: { unit: "slice", dimension: "package", factor: 1 },
+  slices: { unit: "slice", dimension: "package", factor: 1 },
+  packet: { unit: "packet", dimension: "package", factor: 1 },
+  packets: { unit: "packet", dimension: "package", factor: 1 },
   package: { unit: "package", dimension: "package", factor: 1 },
   packages: { unit: "package", dimension: "package", factor: 1 },
   bunch: { unit: "bunch", dimension: "package", factor: 1 },
-  jar: { unit: "jar", dimension: "package", factor: 1 }
+  bunches: { unit: "bunch", dimension: "package", factor: 1 },
+  jar: { unit: "jar", dimension: "package", factor: 1 },
+  jars: { unit: "jar", dimension: "package", factor: 1 }
 };
 
 export interface UnitOption {
   value: string;
   label: string;
   dimension: UnitDimension;
+  aliases?: string[];
 }
 
 export const UNIT_OPTIONS: UnitOption[] = [
-  { value: "count", label: "each", dimension: "count" },
-  { value: "tsp", label: "tsp", dimension: "volume" },
-  { value: "tbsp", label: "tbsp", dimension: "volume" },
-  { value: "cup", label: "cup", dimension: "volume" },
+  {
+    value: "count",
+    label: "each",
+    dimension: "count",
+    aliases: ["count", "item", "items"]
+  },
+  {
+    value: "tsp",
+    label: "tsp",
+    dimension: "volume",
+    aliases: ["teaspoon", "teaspoons"]
+  },
+  {
+    value: "tbsp",
+    label: "tbsp",
+    dimension: "volume",
+    aliases: ["tablespoon", "tablespoons"]
+  },
+  {
+    value: "cup",
+    label: "cup",
+    dimension: "volume",
+    aliases: ["cups", "c"]
+  },
   { value: "ml", label: "ml", dimension: "volume" },
-  { value: "l", label: "l", dimension: "volume" },
-  { value: "oz", label: "oz", dimension: "mass" },
-  { value: "lb", label: "lb", dimension: "mass" },
-  { value: "g", label: "g", dimension: "mass" },
+  { value: "l", label: "l", dimension: "volume", aliases: ["liter", "liters"] },
+  { value: "oz", label: "oz", dimension: "mass", aliases: ["ounce", "ounces"] },
+  {
+    value: "lb",
+    label: "lb",
+    dimension: "mass",
+    aliases: ["lbs", "pound", "pounds"]
+  },
+  { value: "g", label: "g", dimension: "mass", aliases: ["gram", "grams"] },
   { value: "kg", label: "kg", dimension: "mass" },
-  { value: "clove", label: "clove", dimension: "count" },
-  { value: "can", label: "can", dimension: "package" },
-  { value: "package", label: "package", dimension: "package" },
-  { value: "bunch", label: "bunch", dimension: "package" },
-  { value: "jar", label: "jar", dimension: "package" }
+  { value: "clove", label: "clove", dimension: "count", aliases: ["cloves"] },
+  { value: "can", label: "can", dimension: "package", aliases: ["cans"] },
+  { value: "box", label: "box", dimension: "package", aliases: ["boxes"] },
+  { value: "bag", label: "bag", dimension: "package", aliases: ["bags"] },
+  {
+    value: "bottle",
+    label: "bottle",
+    dimension: "package",
+    aliases: ["bottles"]
+  },
+  {
+    value: "carton",
+    label: "carton",
+    dimension: "package",
+    aliases: ["cartons"]
+  },
+  {
+    value: "container",
+    label: "container",
+    dimension: "package",
+    aliases: ["containers"]
+  },
+  { value: "loaf", label: "loaf", dimension: "package", aliases: ["loaves"] },
+  { value: "stick", label: "stick", dimension: "package", aliases: ["sticks"] },
+  { value: "slice", label: "slice", dimension: "package", aliases: ["slices"] },
+  {
+    value: "packet",
+    label: "packet",
+    dimension: "package",
+    aliases: ["packets"]
+  },
+  {
+    value: "package",
+    label: "package",
+    dimension: "package",
+    aliases: ["packages"]
+  },
+  { value: "bunch", label: "bunch", dimension: "package", aliases: ["bunches"] },
+  { value: "jar", label: "jar", dimension: "package", aliases: ["jars"] }
 ];
+
+const PLURAL_UNIT_LABELS: Record<string, string> = {
+  cup: "cups",
+  clove: "cloves",
+  can: "cans",
+  box: "boxes",
+  bag: "bags",
+  bottle: "bottles",
+  carton: "cartons",
+  container: "containers",
+  loaf: "loaves",
+  stick: "sticks",
+  slice: "slices",
+  packet: "packets",
+  package: "packages",
+  bunch: "bunches",
+  jar: "jars"
+};
 
 const FRACTION_GLYPHS: Record<string, string> = {
   "½": "1/2",
@@ -126,12 +224,45 @@ export function normalizeUnit(unit: string): {
   );
 }
 
+export function resolveUnitInput(unit: string): {
+  unit: string;
+  dimension: UnitDimension;
+} {
+  const key = unit.trim().toLowerCase().replace(/\.$/, "");
+  if (!key) return { unit: "count", dimension: "count" };
+  const option = UNIT_OPTIONS.find((candidate) =>
+    [candidate.value, candidate.label, ...(candidate.aliases ?? [])].includes(
+      key
+    )
+  );
+  if (option) {
+    return { unit: option.value, dimension: option.dimension };
+  }
+  const normalized = normalizeUnit(key);
+  return {
+    unit: normalized.unit,
+    dimension: normalized.dimension
+  };
+}
+
 export function unitLabel(unit: string): string {
   const normalized = unit.trim().toLowerCase();
-  const option = UNIT_OPTIONS.find((candidate) => candidate.value === normalized);
+  const option = UNIT_OPTIONS.find((candidate) =>
+    [candidate.value, candidate.label, ...(candidate.aliases ?? [])].includes(
+      normalized
+    )
+  );
   if (option) return option.label;
   if (normalizeUnit(normalized).unit === "count") return "each";
   return normalized || "each";
+}
+
+function displayUnitLabel(unit: string, quantity: number | null): string {
+  const label = unitLabel(unit);
+  if (quantity !== null && Math.abs(quantity) > 1) {
+    return PLURAL_UNIT_LABELS[label] ?? label;
+  }
+  return label;
 }
 
 export function toBaseQuantity(
@@ -186,7 +317,10 @@ export function formatIngredientAmount(
     return ingredient.qualitative ?? "as needed";
   }
   const quantity = formatQuantity(ingredient.quantity);
-  const unit = ingredient.unit === "count" ? "" : unitLabel(ingredient.unit);
+  const unit =
+    resolveUnitInput(ingredient.unit).unit === "count"
+      ? ""
+      : displayUnitLabel(ingredient.unit, ingredient.quantity);
   return [quantity, unit].filter(Boolean).join(" ");
 }
 
@@ -280,13 +414,14 @@ export function createIngredient(
   unit: string,
   preparation?: string
 ): IngredientAmount {
-  const normalized = normalizeUnit(unit);
+  const resolved = resolveUnitInput(unit);
+  const normalized = normalizeUnit(resolved.unit);
   return {
     id,
     name,
     canonicalName: canonicalizeIngredient(name),
     quantity,
-    unit,
+    unit: resolved.unit,
     dimension: normalized.dimension,
     preparation,
     aisle: inferAisle(name)

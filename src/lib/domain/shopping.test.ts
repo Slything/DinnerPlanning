@@ -141,4 +141,15 @@ describe("shopping list generation", () => {
     const list = generateShoppingList(plan(["recipe-a", "recipe-b"]), recipes, []);
     expect(list.items).toHaveLength(2);
   });
+
+  it("combines compatible package aliases", () => {
+    const recipes = [
+      recipe("recipe-a", "Pasta", 1, "box"),
+      recipe("recipe-b", "Pasta", 1, "boxes")
+    ];
+    const list = generateShoppingList(plan(["recipe-a", "recipe-b"]), recipes, []);
+    expect(list.items).toHaveLength(1);
+    expect(list.items[0].quantity).toBe(2);
+    expect(list.items[0].unit).toBe("box");
+  });
 });

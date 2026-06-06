@@ -7,6 +7,8 @@ import type {
 import { filterAndSortRecipes } from "@/lib/domain/recipe-filters";
 import {
   mergedIngredientCatalog,
+  normalizeIngredientDisplayName,
+  resolveIngredientInput,
   searchIngredientSuggestions
 } from "@/lib/domain/ingredient-catalog";
 
@@ -132,5 +134,38 @@ describe("ingredient catalog suggestions", () => {
     expect(searchIngredientSuggestions(suggestions, "on", 1)[0].id).toBe(
       "yellow"
     );
+  });
+
+  it("cleans casing and resolves exact catalog matches", () => {
+    const suggestions = mergedIngredientCatalog([]);
+    expect(normalizeIngredientDisplayName("  GARLIC   ")).toBe("Garlic");
+
+    const resolved = resolveIngredientInput("garlic", suggestions);
+    expect(resolved.displayName).toBe("Garlic");
+    expect(resolved.canonicalName).toBe("garlic");
+    expect(resolved.defaultUnit).toBe("clove");
+  });
+
+  it("resolves common local typos without an API call", () => {
+    const suggestions = mergedIngredientCatalog([]);
+
+    expect(resolveIngredientInput("gralic", suggestions).displayName).toBe(
+      "Garlic"
+    );
+    expect(
+      resolveIngredientInput("gralic bread", suggestions).displayName
+    ).toBe("Garlic bread");
+  });
+
+  it("includes package-friendly starter groceries", () => {
+    const suggestions = mergedIngredientCatalog([]);
+    const pasta = resolveIngredientInput("Pasta", suggestions);
+    expect(pasta.displayName).toBe("Pasta");
+    expect(pasta.defaultUnit).toBe("box");
+    const [garlicBread] = searchIngredientSuggestions(
+      suggestions,
+      "gralic bread"
+    );
+    expect(garlicBread.displayName).toBe("Garlic bread");
   });
 });

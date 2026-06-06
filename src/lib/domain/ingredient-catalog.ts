@@ -3,9 +3,12 @@ import type {
   IngredientCatalogEntry,
   UnitDimension
 } from "@/lib/domain/types";
-import { canonicalizeIngredient } from "@/lib/domain/quantities";
+import {
+  canonicalizeIngredient,
+  inferAisle
+} from "@/lib/domain/quantities";
 
-export type IngredientSuggestionSource = "household" | "starter";
+export type IngredientSuggestionSource = "household" | "starter" | "custom";
 
 export interface IngredientSuggestion {
   id: string;
@@ -18,6 +21,16 @@ export interface IngredientSuggestion {
   aliases: string[];
   usageCount: number;
   lastUsedAt: string;
+}
+
+export interface ResolvedIngredientInput {
+  suggestion?: IngredientSuggestion;
+  displayName: string;
+  canonicalName: string;
+  defaultUnit: string;
+  dimension: UnitDimension;
+  aisle: GroceryAisle;
+  aliases: string[];
 }
 
 type StarterIngredient = Omit<
@@ -50,11 +63,17 @@ const STARTER_INGREDIENTS: StarterIngredient[] = [
   { displayName: "Heavy cream", canonicalName: "heavy cream", defaultUnit: "cup", dimension: "volume", aisle: "Dairy", aliases: ["cream"] },
   { displayName: "Greek yogurt", canonicalName: "greek yogurt", defaultUnit: "cup", dimension: "volume", aisle: "Dairy", aliases: ["yogurt"] },
   { displayName: "Bread", canonicalName: "bread", defaultUnit: "package", dimension: "package", aisle: "Bakery", aliases: [] },
+  { displayName: "Garlic bread", canonicalName: "garlic bread", defaultUnit: "loaf", dimension: "package", aisle: "Frozen", aliases: ["gralic bread"] },
   { displayName: "Tortillas", canonicalName: "tortilla", defaultUnit: "package", dimension: "package", aisle: "Bakery", aliases: ["tortilla"] },
-  { displayName: "Pasta", canonicalName: "pasta", defaultUnit: "oz", dimension: "mass", aisle: "Pantry", aliases: [] },
+  { displayName: "Pasta", canonicalName: "pasta", defaultUnit: "box", dimension: "package", aisle: "Pantry", aliases: ["boxed pasta"] },
+  { displayName: "Spaghetti", canonicalName: "spaghetti", defaultUnit: "box", dimension: "package", aisle: "Pantry", aliases: ["spaghetti noodles"] },
+  { displayName: "Penne pasta", canonicalName: "penne pasta", defaultUnit: "box", dimension: "package", aisle: "Pantry", aliases: ["penne"] },
+  { displayName: "Macaroni", canonicalName: "macaroni", defaultUnit: "box", dimension: "package", aisle: "Pantry", aliases: ["elbow macaroni"] },
+  { displayName: "Lasagna noodles", canonicalName: "lasagna noodles", defaultUnit: "box", dimension: "package", aisle: "Pantry", aliases: ["lasagna pasta"] },
   { displayName: "Rice", canonicalName: "rice", defaultUnit: "cup", dimension: "volume", aisle: "Pantry", aliases: [] },
   { displayName: "Black beans", canonicalName: "black beans", defaultUnit: "can", dimension: "package", aisle: "Pantry", aliases: ["beans"] },
   { displayName: "Tomato sauce", canonicalName: "tomato sauce", defaultUnit: "can", dimension: "package", aisle: "Pantry", aliases: [] },
+  { displayName: "Pasta sauce", canonicalName: "pasta sauce", defaultUnit: "jar", dimension: "package", aisle: "Pantry", aliases: ["marinara sauce", "spaghetti sauce"] },
   { displayName: "Chicken broth", canonicalName: "chicken broth", defaultUnit: "cup", dimension: "volume", aisle: "Pantry", aliases: ["broth"] },
   { displayName: "Olive oil", canonicalName: "olive oil", defaultUnit: "tbsp", dimension: "volume", aisle: "Pantry", aliases: ["oil"] },
   { displayName: "Salt", canonicalName: "salt", defaultUnit: "tsp", dimension: "volume", aisle: "Pantry", aliases: [] },
@@ -67,6 +86,92 @@ const STARTER_INGREDIENTS: StarterIngredient[] = [
 ];
 
 const STARTER_DATE = "1970-01-01T00:00:00.000Z";
+const INGREDIENT_WORD_FIXES: Record<string, string> = {
+  gralic: "garlic"
+};
+
+function cleanIngredientText(input: string): string {
+  return input
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function addAlias(aliases: string[], value: string): string[] {
+  const cleaned = cleanIngredientText(value);
+  if (!cleaned) return aliases;
+  if (
+    aliases.some((alias) => alias.toLowerCase() === cleaned.toLowerCase())
+  ) {
+    return aliases;
+  }
+  return [...aliases, cleaned];
+}
+
+function candidateValues(entry: IngredientSuggestion): string[] {
+  return [entry.displayName, entry.canonicalName, ...entry.aliases];
+}
+
+function damerauLevenshtein(left: string, right: string): number {
+  const matrix = Array.from({ length: left.length + 1 }, () =>
+    Array<number>(right.length + 1).fill(0)
+  );
+  for (let index = 0; index <= left.length; index += 1) {
+    matrix[index][0] = index;
+  }
+  for (let index = 0; index <= right.length; index += 1) {
+    matrix[0][index] = index;
+  }
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      const cost =
+        left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1;
+      matrix[leftIndex][rightIndex] = Math.min(
+        matrix[leftIndex - 1][rightIndex] + 1,
+        matrix[leftIndex][rightIndex - 1] + 1,
+        matrix[leftIndex - 1][rightIndex - 1] + cost
+      );
+      if (
+        leftIndex > 1 &&
+        rightIndex > 1 &&
+        left[leftIndex - 1] === right[rightIndex - 2] &&
+        left[leftIndex - 2] === right[rightIndex - 1]
+      ) {
+        matrix[leftIndex][rightIndex] = Math.min(
+          matrix[leftIndex][rightIndex],
+          matrix[leftIndex - 2][rightIndex - 2] + cost
+        );
+      }
+    }
+  }
+  return matrix[left.length][right.length];
+}
+
+function sortSuggestions(
+  left: IngredientSuggestion,
+  right: IngredientSuggestion
+): number {
+  if (left.source !== right.source) {
+    return left.source === "household" ? -1 : 1;
+  }
+  return (
+    right.usageCount - left.usageCount ||
+    right.lastUsedAt.localeCompare(left.lastUsedAt) ||
+    left.displayName.localeCompare(right.displayName)
+  );
+}
+
+export function normalizeIngredientDisplayName(input: string): string {
+  const cleaned = cleanIngredientText(input);
+  if (!cleaned) return "";
+  const corrected = cleaned
+    .toLowerCase()
+    .split(" ")
+    .map((word) => INGREDIENT_WORD_FIXES[word] ?? word)
+    .join(" ");
+  return corrected.charAt(0).toUpperCase() + corrected.slice(1);
+}
 
 export function starterIngredientCatalog(): IngredientSuggestion[] {
   return STARTER_INGREDIENTS.map((entry) => ({
@@ -112,14 +217,66 @@ export function findIngredientSuggestion(
   suggestions: IngredientSuggestion[],
   name: string
 ): IngredientSuggestion | undefined {
-  const normalized = name.trim().toLowerCase();
-  const canonical = canonicalizeIngredient(name);
+  const displayName = normalizeIngredientDisplayName(name);
+  const normalized = displayName.toLowerCase();
+  const canonical = canonicalizeIngredient(displayName);
   return suggestions.find(
     (entry) =>
       entry.displayName.toLowerCase() === normalized ||
       entry.canonicalName === canonical ||
-      entry.aliases.some((alias) => alias.toLowerCase() === normalized)
+      entry.aliases.some(
+        (alias) =>
+          normalizeIngredientDisplayName(alias).toLowerCase() === normalized
+      )
   );
+}
+
+export function resolveIngredientInput(
+  input: string,
+  suggestions: IngredientSuggestion[]
+): ResolvedIngredientInput {
+  const raw = cleanIngredientText(input);
+  const displayName = normalizeIngredientDisplayName(raw);
+  const exact = findIngredientSuggestion(suggestions, raw);
+  const canonical = canonicalizeIngredient(displayName);
+  const fuzzy =
+    exact ??
+    suggestions
+      .filter((entry) =>
+        candidateValues(entry).some(
+          (value) =>
+            damerauLevenshtein(canonical, canonicalizeIngredient(value)) <= 1
+        )
+      )
+      .sort(sortSuggestions)[0];
+  const suggestion = exact ?? fuzzy;
+  const resolvedDisplayName = suggestion?.displayName ?? displayName;
+  const aliases = [raw, displayName].reduce(addAlias, [] as string[]).filter(
+    (alias) =>
+      alias.toLowerCase() !== resolvedDisplayName.toLowerCase() &&
+      alias.toLowerCase() !== (suggestion?.canonicalName ?? canonical)
+  );
+
+  if (suggestion) {
+    return {
+      suggestion,
+      displayName: suggestion.displayName,
+      canonicalName: suggestion.canonicalName,
+      defaultUnit: suggestion.defaultUnit,
+      dimension: suggestion.dimension,
+      aisle: suggestion.aisle,
+      aliases
+    };
+  }
+
+  return {
+    displayName,
+    canonicalName: canonical,
+    defaultUnit: "count",
+    dimension: "count",
+    aisle: inferAisle(displayName),
+    aliases
+  };
 }
 
 export function searchIngredientSuggestions(
@@ -129,24 +286,25 @@ export function searchIngredientSuggestions(
 ): IngredientSuggestion[] {
   const normalized = query.trim().toLowerCase();
   if (!normalized) return [];
+  const displayQuery = normalizeIngredientDisplayName(query);
+  const canonicalQuery = canonicalizeIngredient(displayQuery);
   return suggestions
     .filter((entry) =>
-      [entry.displayName, entry.canonicalName, ...entry.aliases].some((value) =>
-        value.toLowerCase().includes(normalized)
-      )
+      candidateValues(entry).some((value) => {
+        const candidate = value.toLowerCase();
+        const candidateCanonical = canonicalizeIngredient(value);
+        return (
+          candidate.includes(normalized) ||
+          candidateCanonical.includes(canonicalQuery) ||
+          damerauLevenshtein(canonicalQuery, candidateCanonical) <= 1
+        );
+      })
     )
     .sort((left, right) => {
       const leftStarts = left.displayName.toLowerCase().startsWith(normalized);
       const rightStarts = right.displayName.toLowerCase().startsWith(normalized);
       if (leftStarts !== rightStarts) return leftStarts ? -1 : 1;
-      if (left.source !== right.source) {
-        return left.source === "household" ? -1 : 1;
-      }
-      return (
-        right.usageCount - left.usageCount ||
-        right.lastUsedAt.localeCompare(left.lastUsedAt) ||
-        left.displayName.localeCompare(right.displayName)
-      );
+      return sortSuggestions(left, right);
     })
     .slice(0, limit);
 }

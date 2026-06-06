@@ -52,7 +52,9 @@ import {
   formatIngredientLine,
   inferAisle,
   normalizeUnit,
-  parseQuantity
+  parseQuantity,
+  resolveUnitInput,
+  unitLabel
 } from "@/lib/domain/quantities";
 import { createAdjustment } from "@/lib/domain/cooking";
 import {
@@ -64,8 +66,8 @@ import {
   filterAndSortRecipes
 } from "@/lib/domain/recipe-filters";
 import {
-  findIngredientSuggestion,
   mergedIngredientCatalog,
+  resolveIngredientInput,
   searchIngredientSuggestions
 } from "@/lib/domain/ingredient-catalog";
 import { useAppStore } from "@/lib/store/store";
@@ -116,6 +118,45 @@ function quickCookTags(tags: string[], quickCook: boolean): string[] {
     (tag) => tag.toLowerCase() !== "quick cook"
   );
   return quickCook ? ["Quick Cook", ...withoutQuickCook] : withoutQuickCook;
+}
+
+function UnitInput({
+  value,
+  onChange,
+  listId,
+  disabled = false,
+  placeholder = "Unit"
+}: {
+  value: string;
+  onChange: (unit: string, dimension: IngredientAmount["dimension"]) => void;
+  listId: string;
+  disabled?: boolean;
+  placeholder?: string;
+}) {
+  function update(input: string) {
+    const resolved = resolveUnitInput(input);
+    onChange(resolved.unit, resolved.dimension);
+  }
+
+  return (
+    <>
+      <input
+        list={listId}
+        value={unitLabel(value)}
+        disabled={disabled}
+        placeholder={placeholder}
+        onChange={(event) => update(event.target.value)}
+        onBlur={(event) => update(event.target.value)}
+      />
+      <datalist id={listId}>
+        {UNIT_OPTIONS.map((option) => (
+          <option value={option.label} key={option.value}>
+            {option.value}
+          </option>
+        ))}
+      </datalist>
+    </>
+  );
 }
 
 export function DinnerPlannerApp() {
@@ -710,7 +751,9 @@ interface IngredientEditorValue {
   name: string;
   quantity: string;
   unit: string;
+  unitTouched?: boolean;
   aisle?: GroceryAisle;
+  aliases?: string[];
   saveToCatalog?: boolean;
 }
 
@@ -727,6 +770,40 @@ function emptyIngredient(): IngredientEditorValue {
     quantity: "",
     unit: "count",
     saveToCatalog: true
+  };
+}
+
+function resolveEditorIngredient(
+  ingredient: IngredientEditorValue,
+  suggestions: ReturnType<typeof mergedIngredientCatalog>
+): IngredientEditorValue {
+  const resolved = resolveIngredientInput(ingredient.name, suggestions);
+  const currentUnit = resolveUnitInput(ingredient.unit);
+  const shouldUseSuggestionUnit =
+    !ingredient.unitTouched && Boolean(resolved.suggestion);
+  const nextUnit = shouldUseSuggestionUnit
+    ? resolved.defaultUnit
+    : currentUnit.unit;
+  const nextUnitResolution = resolveUnitInput(nextUnit);
+
+  return {
+    ...ingredient,
+    name: resolved.displayName,
+    canonicalName: resolved.canonicalName,
+    catalogId:
+      resolved.suggestion?.source === "household"
+        ? resolved.suggestion.id
+        : undefined,
+    unit: nextUnitResolution.unit,
+    unitTouched: ingredient.unitTouched,
+    dimension: shouldUseSuggestionUnit
+      ? resolved.dimension
+      : nextUnitResolution.dimension,
+    aisle: resolved.aisle,
+    aliases: resolved.aliases,
+    saveToCatalog: resolved.suggestion
+      ? true
+      : ingredient.saveToCatalog ?? true
   };
 }
 
@@ -911,9 +988,11 @@ function RecipeEditorModal({
           quantity:
             ingredient.quantity === null ? "" : String(ingredient.quantity),
           unit: ingredient.unit,
+          unitTouched: true,
           catalogId: ingredient.catalogId,
           dimension: ingredient.dimension,
           aisle: ingredient.aisle,
+          aliases: ingredient.aliases,
           saveToCatalog: true
         }))
       );
@@ -935,14 +1014,18 @@ function RecipeEditorModal({
   async function saveRecipe() {
     const parsedIngredients = ingredients
       .filter((ingredient) => ingredient.name.trim())
+      .map((ingredient) =>
+        resolveEditorIngredient(ingredient, ingredientSuggestions)
+      )
       .map((ingredient) => {
-        const normalized = normalizeUnit(ingredient.unit);
+        const unitResolution = resolveUnitInput(ingredient.unit);
+        const normalized = normalizeUnit(unitResolution.unit);
         const parsed = parseQuantity(ingredient.quantity);
         const base = createIngredient(
           ingredient.id,
           ingredient.name.trim(),
           parsed,
-          ingredient.unit
+          unitResolution.unit
         );
         return {
           ...base,
@@ -950,7 +1033,8 @@ function RecipeEditorModal({
           saveToCatalog: ingredient.saveToCatalog ?? true,
           canonicalName: ingredient.canonicalName ?? base.canonicalName,
           dimension: ingredient.dimension ?? normalized.dimension,
-          aisle: ingredient.aisle ?? inferAisle(ingredient.name)
+          aisle: ingredient.aisle ?? inferAisle(ingredient.name),
+          aliases: ingredient.aliases ?? []
         };
       });
     if (!title.trim() || parsedIngredients.length === 0) {
@@ -1173,12 +1257,13 @@ function RecipeEditorModal({
             </div>
             <div className="form-grid compact-grid">
               {ingredients.map((ingredient) => {
-                const selectedSuggestion = findIngredientSuggestion(
-                  ingredientSuggestions,
-                  ingredient.name
+                const resolvedIngredient = resolveIngredientInput(
+                  ingredient.name,
+                  ingredientSuggestions
                 );
                 const isCustom =
-                  Boolean(ingredient.name.trim()) && !selectedSuggestion;
+                  Boolean(ingredient.name.trim()) &&
+                  !resolvedIngredient.suggestion;
                 return (
                   <div className="ingredient-editor-item" key={ingredient.id}>
                     <div className="ingredient-editor-row">
@@ -1198,66 +1283,57 @@ function RecipeEditorModal({
                           )
                         }
                       />
-                      <select
+                      <UnitInput
+                        listId={`unit-options-${ingredient.id}`}
                         value={ingredient.unit}
-                        onChange={(event) => {
-                          const unit = event.target.value;
-                          const normalized = normalizeUnit(unit);
+                        onChange={(unit, dimension) => {
                           setIngredients((current) =>
                             current.map((candidate) =>
                               candidate.id === ingredient.id
                                 ? {
                                     ...candidate,
                                     unit,
-                                    dimension: normalized.dimension
+                                    dimension,
+                                    unitTouched: true
                                   }
                                 : candidate
                             )
                           );
                         }}
-                      >
-                        {UNIT_OPTIONS.map((option) => (
-                          <option value={option.value} key={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
+                      />
                       <input
                         list={`ingredient-catalog-${ingredient.id}`}
                         value={ingredient.name}
                         placeholder="Ingredient"
                         onChange={(event) => {
                           const name = event.target.value;
-                          const match = findIngredientSuggestion(
-                            ingredientSuggestions,
-                            name
-                          );
                           setIngredients((current) =>
                             current.map((candidate) =>
                               candidate.id === ingredient.id
                                 ? {
                                     ...candidate,
-                                    name: match?.displayName ?? name,
-                                    canonicalName: match?.canonicalName,
-                                    catalogId:
-                                      match?.source === "household"
-                                        ? match.id
-                                        : undefined,
-                                    unit:
-                                      match?.defaultUnit ?? candidate.unit,
-                                    dimension:
-                                      match?.dimension ?? candidate.dimension,
-                                    aisle: match?.aisle,
-                                    quantity: match
-                                      ? ""
-                                      : candidate.quantity,
-                                    saveToCatalog:
-                                      match ? true : candidate.saveToCatalog
+                                    name,
+                                    canonicalName: undefined,
+                                    catalogId: undefined,
+                                    aisle: undefined,
+                                    aliases: undefined
                                   }
                                 : candidate
                             )
                           );
                         }}
+                        onBlur={() =>
+                          setIngredients((current) =>
+                            current.map((candidate) =>
+                              candidate.id === ingredient.id
+                                ? resolveEditorIngredient(
+                                    candidate,
+                                    ingredientSuggestions
+                                  )
+                                : candidate
+                            )
+                          )
+                        }
                       />
                       <datalist id={`ingredient-catalog-${ingredient.id}`}>
                         {searchIngredientSuggestions(
@@ -2067,16 +2143,11 @@ function PantryItemModal({
             </label>
             <label>
               Unit
-              <select
+              <UnitInput
+                listId="pantry-unit-options"
                 value={unit}
-                onChange={(event) => setUnit(event.target.value)}
-              >
-                {UNIT_OPTIONS.map((option) => (
-                  <option value={option.value} key={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
+                onChange={(nextUnit) => setUnit(nextUnit)}
+              />
             </label>
           </div>
         ) : null}
@@ -2614,17 +2685,12 @@ function CookingReviewModal({
           </label>
           <label>
             Unit
-            <select
+            <UnitInput
+              listId="cooking-adjustment-unit-options"
               value={unit}
               disabled={ingredientId !== "new"}
-              onChange={(event) => setUnit(event.target.value)}
-            >
-              {UNIT_OPTIONS.map((option) => (
-                <option value={option.value} key={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+              onChange={(nextUnit) => setUnit(nextUnit)}
+            />
           </label>
         </div>
         {!quantity && kind !== "skipped" ? (
@@ -2824,13 +2890,14 @@ function ProposalReviewModal({
                 )
               }
             />
-            <input
+            <UnitInput
+              listId={`proposal-unit-options-${ingredient.id}`}
               value={ingredient.unit}
-              onChange={(event) =>
+              onChange={(unit, dimension) =>
                 setIngredients((current) =>
                   current.map((candidate) =>
                     candidate.id === ingredient.id
-                      ? { ...candidate, unit: event.target.value }
+                      ? { ...candidate, unit, dimension }
                       : candidate
                   )
                 )

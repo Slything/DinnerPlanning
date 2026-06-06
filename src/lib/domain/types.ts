@@ -46,6 +46,7 @@ export interface IngredientAmount {
   qualitative?: "little" | "some" | "lot" | "as-needed";
   aisle: GroceryAisle;
   optional?: boolean;
+  aliases?: string[];
 }
 
 export interface IngredientCatalogEntry {
