@@ -3277,19 +3277,17 @@ function HouseholdSettingsModal({
   }, [open, state.household.name]);
 
   async function invite() {
-    if (!inviteEmail.includes("@")) {
-      notify("Enter the email address for the person you want to invite.");
-      return;
-    }
     setSending(true);
     try {
+      const trimmedEmail = inviteEmail.trim();
       const response = await fetch("/api/household-invitations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: inviteEmail })
+        body: JSON.stringify({ email: trimmedEmail || undefined })
       });
       const result = (await response.json()) as {
         inviteUrl?: string;
+        email?: string | null;
         emailSent?: boolean;
         emailError?: string;
         error?: string;
@@ -3300,10 +3298,12 @@ function HouseholdSettingsModal({
       setInviteUrl(result.inviteUrl);
       notify(
         result.emailSent
-          ? `Invitation emailed to ${inviteEmail}.`
+          ? `Invitation emailed to ${trimmedEmail}.`
           : result.emailError
             ? "Invitation link prepared. Email could not be sent automatically."
-            : `Invitation link prepared for ${inviteEmail}.`
+            : trimmedEmail
+              ? `Invitation link prepared for ${trimmedEmail}.`
+              : "Household invitation link prepared."
       );
       setInviteEmail("");
     } catch (error) {
@@ -3376,22 +3376,28 @@ function HouseholdSettingsModal({
           <Users size={23} color="#315c4a" />
           <h3>Invite someone</h3>
           <p>
-            Invitations are single-use, expire after seven days, and are tied to
-            this household.
+            Leave email blank to create a copyable household link. Add an email
+            if you want the invitation reserved for that address.
           </p>
           <div className="invite-row">
             <input
               type="email"
               value={inviteEmail}
               onChange={(event) => setInviteEmail(event.target.value)}
-              placeholder="partner@example.com"
+              placeholder="Optional email"
             />
             <button
               className="primary-button"
               onClick={invite}
               disabled={sending}
             >
-              {sending ? <LoaderCircle className="spin" size={16} /> : "Invite"}
+              {sending ? (
+                <LoaderCircle className="spin" size={16} />
+              ) : inviteEmail.trim() ? (
+                "Invite"
+              ) : (
+                "Generate link"
+              )}
             </button>
           </div>
           {inviteUrl ? (

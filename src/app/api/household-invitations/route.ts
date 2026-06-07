@@ -5,13 +5,19 @@ import { appUrl, authCallbackUrl } from "@/lib/app-url";
 import { createAdminSupabaseClient, requireUser } from "@/lib/supabase/server";
 
 const schema = z.object({
-  email: z.string().email()
+  email: z.preprocess(
+    (value) =>
+      typeof value === "string" && value.trim()
+        ? value.trim().toLowerCase()
+        : undefined,
+    z.string().email().optional()
+  )
 });
 
 export async function POST(request: Request) {
   try {
     const input = schema.parse(await request.json());
-    const normalizedEmail = input.email.toLowerCase();
+    const normalizedEmail = input.email;
     const { supabase, user } = await requireUser();
     const admin = createAdminSupabaseClient();
     if (!supabase || !user) {
@@ -20,7 +26,8 @@ export async function POST(request: Request) {
         { status: 401 }
       );
     }
-    const { data: membership, error: membershipError } = await supabase
+    const membershipClient = admin ?? supabase;
+    const { data: membership, error: membershipError } = await membershipClient
       .from("household_members")
       .select("household_id")
       .eq("user_id", user.id)
@@ -37,7 +44,7 @@ export async function POST(request: Request) {
       .from("household_invitations")
       .insert({
         household_id: membership.household_id,
-        email: normalizedEmail,
+        email: normalizedEmail ?? null,
         token,
         invited_by: user.id
       })
@@ -50,7 +57,9 @@ export async function POST(request: Request) {
     const emailRedirectUrl = authCallbackUrl(invitePath, requestOrigin);
     let emailSent = false;
     let emailError: string | undefined;
-    if (!admin) {
+    if (!normalizedEmail) {
+      emailError = undefined;
+    } else if (!admin) {
       emailError = "Supabase admin access is not configured.";
     } else {
       const { data: users, error: userListError } =

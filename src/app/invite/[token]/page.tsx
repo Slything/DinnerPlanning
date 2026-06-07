@@ -30,7 +30,7 @@ export default async function InvitationPage({
     !lookupUnavailable &&
     (!invitation || Boolean(invitation.accepted_at));
   const next = `/invite/${token}`;
-  const invitationEmail = invitation?.email ?? "the invited email address";
+  const invitationEmail = invitation?.email ?? "";
   const signedInEmail = user?.email ?? "";
   const emailMismatch =
     Boolean(user && invitation?.email) &&
@@ -64,8 +64,9 @@ export default async function InvitationPage({
           </p>
         ) : (
           <p>
-            This single-use invitation is reserved for {invitationEmail}.
-            Sign in with that exact address to accept it.
+            {invitationEmail
+              ? `This single-use invitation is reserved for ${invitationEmail}. Sign in with that exact address to accept it.`
+              : "This single-use invitation lets a signed-in person join the household."}
           </p>
         )}
         {!expired && user ? (

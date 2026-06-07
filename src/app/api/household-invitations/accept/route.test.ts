@@ -93,6 +93,62 @@ describe("/api/household-invitations/accept", () => {
     expect(rpc).not.toHaveBeenCalled();
   });
 
+  it("allows a link-only invite without matching a reserved email", async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      data: "household-1",
+      error: null
+    });
+    vi.mocked(createAdminSupabaseClient).mockReturnValue({
+      from: vi.fn((table: string) => {
+        if (table === "household_invitations") {
+          return {
+            select: () => ({
+              eq: () => ({
+                maybeSingle: vi.fn().mockResolvedValue({
+                  data: {
+                    id: "invite-1",
+                    email: null,
+                    expires_at: "2999-01-01T00:00:00.000Z",
+                    accepted_at: null,
+                    household_id: "household-1"
+                  },
+                  error: null
+                })
+              })
+            })
+          };
+        }
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: vi.fn().mockResolvedValue({
+                data: null,
+                error: null
+              })
+            })
+          })
+        };
+      })
+    } as never);
+    vi.mocked(requireUser).mockResolvedValue({
+      supabase: { rpc } as never,
+      user: {
+        id: "user-1",
+        email: "anyone@example.com",
+        displayName: "Anyone"
+      }
+    });
+
+    const response = await POST(request());
+    const payload = (await response.json()) as { householdId: string };
+
+    expect(response.status).toBe(200);
+    expect(payload).toEqual({ householdId: "household-1" });
+    expect(rpc).toHaveBeenCalledWith("accept_household_invitation", {
+      invitation_token: "00000000-0000-4000-8000-000000000001"
+    });
+  });
+
   it("returns switch details when the signed-in user belongs to another household", async () => {
     const rpc = vi.fn();
     vi.mocked(createAdminSupabaseClient).mockReturnValue({

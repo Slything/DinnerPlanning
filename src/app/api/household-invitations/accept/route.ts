@@ -50,9 +50,12 @@ export async function POST(request: Request) {
           { status: 410 }
         );
       }
-      const invitedEmail = String(invitation.email).toLowerCase();
+      const invitedEmail =
+        typeof invitation.email === "string" && invitation.email
+          ? invitation.email.toLowerCase()
+          : null;
       const signedInEmail = user.email.toLowerCase();
-      if (invitedEmail !== signedInEmail) {
+      if (invitedEmail && invitedEmail !== signedInEmail) {
         return NextResponse.json(
           {
             error: `This invitation is for ${invitation.email}, but you are signed in as ${user.email}. Sign out and use the invited email address.`
