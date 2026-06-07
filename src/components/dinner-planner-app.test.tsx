@@ -175,6 +175,32 @@ describe("DinnerPlannerApp ingredient entry", () => {
     expect(ingredientInput).toHaveValue("Garlic bread");
   });
 
+  it("lets the unit field be cleared and typed before normalizing", async () => {
+    render(
+      <AppStoreProvider initialState={initialState}>
+        <DinnerPlannerApp />
+      </AppStoreProvider>
+    );
+
+    openRecipesTab();
+    await screen.findByRole("heading", { name: "Recipe Book" });
+    openAddRecipeModal();
+    const dialog = await screen.findByRole("dialog", { name: "Add a recipe" });
+    const unitInput = within(dialog).getAllByPlaceholderText(
+      "Unit"
+    )[0] as HTMLInputElement;
+
+    fireEvent.focus(unitInput);
+    fireEvent.change(unitInput, { target: { value: "" } });
+    expect(unitInput).toHaveValue("");
+
+    fireEvent.change(unitInput, { target: { value: "box" } });
+    expect(unitInput).toHaveValue("box");
+
+    fireEvent.blur(unitInput);
+    expect(unitInput).toHaveValue("box");
+  });
+
   it("saves a chosen package unit instead of replacing it with a catalog default", async () => {
     let capturedPayload: unknown;
     vi.stubGlobal(

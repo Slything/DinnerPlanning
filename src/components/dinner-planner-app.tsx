@@ -133,20 +133,39 @@ function UnitInput({
   disabled?: boolean;
   placeholder?: string;
 }) {
+  const [draft, setDraft] = useState(unitLabel(value));
+  const [focused, setFocused] = useState(false);
+
+  useEffect(() => {
+    if (!focused) setDraft(unitLabel(value));
+  }, [focused, value]);
+
   function update(input: string) {
     const resolved = resolveUnitInput(input);
     onChange(resolved.unit, resolved.dimension);
   }
 
   return (
-    <>
+    <span className="unit-input-wrap">
       <input
         list={listId}
-        value={unitLabel(value)}
+        value={focused ? draft : unitLabel(value)}
         disabled={disabled}
         placeholder={placeholder}
-        onChange={(event) => update(event.target.value)}
-        onBlur={(event) => update(event.target.value)}
+        onFocus={(event) => {
+          setFocused(true);
+          setDraft(event.currentTarget.value);
+          event.currentTarget.select();
+        }}
+        onChange={(event) => {
+          const input = event.target.value;
+          setDraft(input);
+          if (input.trim()) update(input);
+        }}
+        onBlur={(event) => {
+          setFocused(false);
+          update(event.target.value);
+        }}
       />
       <datalist id={listId}>
         {UNIT_OPTIONS.map((option) => (
@@ -155,7 +174,7 @@ function UnitInput({
           </option>
         ))}
       </datalist>
-    </>
+    </span>
   );
 }
 

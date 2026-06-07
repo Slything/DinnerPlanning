@@ -1092,6 +1092,11 @@ label {
   align-items: center;
 }
 
+.unit-input-wrap {
+  display: block;
+  min-width: 0;
+}
+
 .ingredient-editor-item {
   display: grid;
   gap: 6px;
