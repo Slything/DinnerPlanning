@@ -26,7 +26,20 @@ function request(email = "sister@example.com") {
 describe("/api/household-invitations", () => {
   it("sends new-account invite emails through the auth callback", async () => {
     const inviteUserByEmail = vi.fn().mockResolvedValue({ error: null });
+    const singleInvitation = vi.fn().mockResolvedValue({
+      data: {
+        id: "invitation-1",
+        email: "sister@example.com",
+        expires_at: "2026-06-13T00:00:00.000Z"
+      },
+      error: null
+    });
     vi.mocked(createAdminSupabaseClient).mockReturnValue({
+      from: vi.fn(() => ({
+        insert: () => ({
+          select: () => ({ single: singleInvitation })
+        })
+      })),
       auth: {
         admin: {
           listUsers: vi.fn().mockResolvedValue({
@@ -42,14 +55,6 @@ describe("/api/household-invitations", () => {
       data: { household_id: "household-1" },
       error: null
     });
-    const singleInvitation = vi.fn().mockResolvedValue({
-      data: {
-        id: "invitation-1",
-        email: "sister@example.com",
-        expires_at: "2026-06-13T00:00:00.000Z"
-      },
-      error: null
-    });
     const supabase = {
       from: vi.fn((table: string) => {
         if (table === "household_members") {
@@ -59,11 +64,7 @@ describe("/api/household-invitations", () => {
             })
           };
         }
-        return {
-          insert: () => ({
-            select: () => ({ single: singleInvitation })
-          })
-        };
+        throw new Error(`Unexpected table: ${table}`);
       })
     };
     vi.mocked(requireUser).mockResolvedValue({

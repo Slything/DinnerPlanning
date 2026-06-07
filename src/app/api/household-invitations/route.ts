@@ -32,7 +32,8 @@ export async function POST(request: Request) {
       );
     }
     const token = crypto.randomUUID();
-    const { data, error } = await supabase
+    const invitationClient = admin ?? supabase;
+    const { data, error } = await invitationClient
       .from("household_invitations")
       .insert({
         household_id: membership.household_id,
