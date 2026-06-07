@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { apiErrorMessage } from "@/lib/api-errors";
 import { appUrl, authCallbackUrl } from "@/lib/app-url";
 import { createAdminSupabaseClient, requireUser } from "@/lib/supabase/server";
 
@@ -83,7 +84,7 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Invite failed." },
+      { error: apiErrorMessage(error, "Invite failed.") },
       { status: 400 }
     );
   }

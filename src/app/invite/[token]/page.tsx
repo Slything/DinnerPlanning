@@ -31,6 +31,10 @@ export default async function InvitationPage({
     (!invitation || Boolean(invitation.accepted_at));
   const next = `/invite/${token}`;
   const invitationEmail = invitation?.email ?? "the invited email address";
+  const signedInEmail = user?.email ?? "";
+  const emailMismatch =
+    Boolean(user && invitation?.email) &&
+    invitationEmail.toLowerCase() !== signedInEmail.toLowerCase();
   const authHref = `/auth?next=${encodeURIComponent(next)}${
     invitation?.email
       ? `&email=${encodeURIComponent(invitation.email)}`
@@ -67,7 +71,19 @@ export default async function InvitationPage({
         {!expired && user ? (
           <>
             <div className="auth-message">Signed in as {user.email}</div>
-            <InvitationAcceptButton token={token} />
+            {emailMismatch ? (
+              <>
+                <div className="auth-message">
+                  This invitation is for {invitationEmail}. Sign in with that
+                  exact email address to accept it.
+                </div>
+                <Link href={authHref} className="secondary-button">
+                  Sign in with invited email
+                </Link>
+              </>
+            ) : (
+              <InvitationAcceptButton token={token} />
+            )}
           </>
         ) : !expired ? (
           <>

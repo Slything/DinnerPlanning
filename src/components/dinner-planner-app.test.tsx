@@ -515,6 +515,42 @@ describe("DinnerPlannerApp recipe editing and labels", () => {
       within(picker).queryByRole("button", { name: "Saved recipes" })
     ).not.toBeInTheDocument();
   });
+
+  it("shows recipe history restore as a compact icon action", async () => {
+    const recipe = recipeFixture({ id: "recipe-1", title: "Spaghetti" });
+    const editedRecipe: Recipe = {
+      ...recipe,
+      currentVersion: 2,
+      versions: [
+        ...recipe.versions,
+        {
+          ...recipe.versions[0],
+          id: "recipe-1-v2",
+          version: 2,
+          note: "Household recipe edit"
+        }
+      ]
+    };
+
+    render(
+      <AppStoreProvider
+        initialState={{ ...initialState, recipes: [editedRecipe] }}
+      >
+        <DinnerPlannerApp />
+      </AppStoreProvider>
+    );
+
+    openRecipesTab();
+    fireEvent.click(await screen.findByRole("heading", { name: "Spaghetti" }));
+    const detail = await screen.findByRole("dialog", { name: "Spaghetti" });
+
+    expect(within(detail).queryByText("Restore previous")).not.toBeInTheDocument();
+    expect(
+      within(detail).getByRole("button", {
+        name: "Restore previous recipe version"
+      })
+    ).toBeVisible();
+  });
 });
 
 describe("DinnerPlannerApp community recipes", () => {

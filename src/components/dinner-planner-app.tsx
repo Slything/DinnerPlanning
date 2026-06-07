@@ -1752,28 +1752,6 @@ function RecipeDetailModal({
           <li key={instruction}>{instruction}</li>
         ))}
       </ol>
-      {recipe.versions.length > 1 ? (
-        <div className="version-note">
-          <RotateCcw size={16} />
-          <div className="row-main">
-            <strong>Recipe history</strong>
-            <span>
-              This recipe has previous saved edits. Restoring creates another
-              saved edit, so no history is deleted.
-            </span>
-          </div>
-          <button
-            className="secondary-button"
-            onClick={() => {
-              restoreRecipeVersion(recipe.id, recipe.currentVersion - 1);
-              notify("Previous recipe version queued for restoration.");
-              onClose();
-            }}
-          >
-            Restore previous
-          </button>
-        </div>
-      ) : null}
       {recipe.updateAvailable ? (
         <div className="proposal-callout">
           <Download size={20} />
@@ -1860,6 +1838,23 @@ function RecipeDetailModal({
           <Share2 size={16} /> Share
         </button>
       </div>
+      {recipe.versions.length > 1 ? (
+        <div className="recipe-history-footer">
+          <span>Previous version available</span>
+          <button
+            className="mini-button"
+            onClick={() => {
+              restoreRecipeVersion(recipe.id, recipe.currentVersion - 1);
+              notify("Previous recipe version queued for restoration.");
+              onClose();
+            }}
+            aria-label="Restore previous recipe version"
+            title="Restore previous"
+          >
+            <RotateCcw size={14} />
+          </button>
+        </div>
+      ) : null}
       <RecipeShareModal
         recipe={recipe}
         open={shareOpen}

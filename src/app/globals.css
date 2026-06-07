@@ -1232,6 +1232,16 @@ label {
   text-transform: uppercase;
 }
 
+.recipe-history-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .ingredient-list,
 .instruction-list {
   display: grid;
@@ -1739,6 +1749,8 @@ label {
 }
 
 .auth-message {
+  display: grid;
+  gap: 5px;
   padding: 11px 13px;
   border-radius: 10px;
   background: var(--terracotta-light);
