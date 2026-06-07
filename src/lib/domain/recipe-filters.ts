@@ -3,6 +3,10 @@ import type {
   Recipe,
   RecipeSortMode
 } from "@/lib/domain/types";
+import {
+  isQuickCookRecipe,
+  recipeLabels
+} from "@/lib/domain/recipe-labels";
 
 export interface RecipeFilters {
   query: string;
@@ -42,19 +46,16 @@ export function filterAndSortRecipes(
       const haystack = [
         recipe.title,
         recipe.description,
-        ...recipe.tags,
+        ...recipeLabels(recipe),
         ...(version?.ingredients.map((ingredient) => ingredient.name) ?? [])
       ]
         .join(" ")
         .toLowerCase();
-      const isQuickCook = recipe.tags.some(
-        (tag) => tag.toLowerCase() === "quick cook"
-      );
       return (
         (!query || haystack.includes(query)) &&
         (!filters.favoritesOnly || recipe.favorite) &&
         (!filters.neverCookedOnly || !lastCooked.get(recipe.id)) &&
-        (!filters.quickCookOnly || isQuickCook)
+        (!filters.quickCookOnly || isQuickCookRecipe(recipe))
       );
     })
     .sort((left, right) => {

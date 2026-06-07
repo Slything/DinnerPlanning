@@ -78,6 +78,8 @@ function mapRecipe(row: Row, allVersions: Row[]): Recipe {
     publishedVersion: row.published_version
       ? numberValue(row.published_version)
       : undefined,
+    sourceType: row.visibility === "public" ? "public-owned" : "household",
+    sourceLabel: row.visibility === "public" ? "Public" : undefined,
     currentVersion: numberValue(row.current_version, 1),
     versions,
     createdAt: text(row.created_at)
@@ -275,6 +277,10 @@ export async function loadAppState(
     recipe.attributionHousehold = optionalText(
       snapshot?.attributionHousehold
     );
+    recipe.sourceType = "saved-copy";
+    recipe.sourceLabel = `Saved from ${
+      recipe.attributionHousehold ?? "another household"
+    }`;
     recipe.updateAvailable =
       Boolean(origin.updates_enabled) &&
       Boolean(latest) &&

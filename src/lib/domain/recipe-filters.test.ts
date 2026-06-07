@@ -6,6 +6,11 @@ import type {
 } from "@/lib/domain/types";
 import { filterAndSortRecipes } from "@/lib/domain/recipe-filters";
 import {
+  recipeLabels,
+  recipeSourceLabel,
+  visibleRecipeTags
+} from "@/lib/domain/recipe-labels";
+import {
   mergedIngredientCatalog,
   normalizeIngredientDisplayName,
   resolveIngredientInput,
@@ -111,6 +116,43 @@ describe("recipe browsing", () => {
       }
     );
     expect(result.map((item) => item.id)).toEqual(["tacos"]);
+  });
+
+  it("hides free-form tags and keeps only Quick Cook", () => {
+    expect(visibleRecipeTags(["vegetarian", "Quick Cook", "family"])).toEqual([
+      "Quick Cook"
+    ]);
+    expect(recipeLabels(recipe("pasta", 20, false, ["family"]))).toEqual([]);
+    expect(
+      filterAndSortRecipes(
+        [recipe("pasta", 20, false, ["family"])],
+        [],
+        {
+          query: "family",
+          favoritesOnly: false,
+          neverCookedOnly: false,
+          quickCookOnly: false,
+          sort: "alphabetical"
+        }
+      )
+    ).toHaveLength(0);
+  });
+
+  it("labels public and saved recipe sources", () => {
+    expect(
+      recipeSourceLabel({
+        ...recipe("spaghetti", 20),
+        visibility: "public",
+        sourceType: "public-owned"
+      })
+    ).toBe("Public");
+    expect(
+      recipeSourceLabel({
+        ...recipe("lasagna", 20),
+        attributionHousehold: "Mom's Kitchen",
+        sourceType: "saved-copy"
+      })
+    ).toBe("Saved from Mom's Kitchen");
   });
 });
 

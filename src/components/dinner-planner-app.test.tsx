@@ -8,7 +8,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DinnerPlannerApp } from "@/components/dinner-planner-app";
-import type { AppState } from "@/lib/domain/types";
+import type { AppState, Recipe } from "@/lib/domain/types";
 import { AppStoreProvider } from "@/lib/store/store";
 
 const initialState: AppState = {
@@ -61,6 +61,54 @@ function openAddRecipeModal() {
     name: /Add recipe/i
   });
   fireEvent.click(addRecipeButtons[0]);
+}
+
+function recipeFixture(input: Partial<Recipe> & { id: string; title: string }): Recipe {
+  return {
+    id: input.id,
+    householdId: "household-1",
+    title: input.title,
+    description: input.description ?? "A household favorite.",
+    sourceUrl: input.sourceUrl,
+    sourceCreator: input.sourceCreator,
+    imageUrl: input.imageUrl,
+    prepMinutes: input.prepMinutes ?? 0,
+    cookMinutes: input.cookMinutes ?? 0,
+    tags: input.tags ?? [],
+    favorite: input.favorite ?? false,
+    visibility: input.visibility ?? "private",
+    sourceType: input.sourceType,
+    sourceLabel: input.sourceLabel,
+    attributionHousehold: input.attributionHousehold,
+    updateAvailable: input.updateAvailable,
+    currentVersion: input.currentVersion ?? 1,
+    createdAt: input.createdAt ?? "2026-01-01T00:00:00.000Z",
+    versions:
+      input.versions ??
+      [
+        {
+          id: `${input.id}-v1`,
+          recipeId: input.id,
+          version: 1,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          createdBy: "user-1",
+          note: "Original",
+          yield: 4,
+          ingredients: [
+            {
+              id: `${input.id}-ingredient`,
+              name: "Pasta",
+              canonicalName: "pasta",
+              quantity: 1,
+              unit: "box",
+              dimension: "package",
+              aisle: "Pantry"
+            }
+          ],
+          instructions: ["Cook it."]
+        }
+      ]
+  };
 }
 
 describe("DinnerPlannerApp recipe importing", () => {
@@ -264,5 +312,106 @@ describe("DinnerPlannerApp ingredient entry", () => {
       unit: "box",
       dimension: "package"
     });
+  });
+});
+
+describe("DinnerPlannerApp recipe editing and labels", () => {
+  it("edits an existing recipe and saves through updateRecipe", async () => {
+    let capturedPayload: unknown;
+    const recipe = recipeFixture({
+      id: "recipe-1",
+      title: "Spaghetti",
+      tags: ["Quick Cook", "family"]
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) === "/api/app-actions") {
+          capturedPayload = JSON.parse(String(init?.body));
+          return new Response(
+            JSON.stringify({
+              state: { ...initialState, recipes: [recipe] }
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        throw new Error(`Unexpected fetch to ${String(input)}`);
+      })
+    );
+
+    render(
+      <AppStoreProvider initialState={{ ...initialState, recipes: [recipe] }}>
+        <DinnerPlannerApp />
+      </AppStoreProvider>
+    );
+
+    openRecipesTab();
+    fireEvent.click(await screen.findByRole("heading", { name: "Spaghetti" }));
+    const detail = await screen.findByRole("dialog", { name: "Spaghetti" });
+    expect(within(detail).queryByText("family")).not.toBeInTheDocument();
+    expect(within(detail).queryByText(/^v1$/)).not.toBeInTheDocument();
+
+    fireEvent.click(within(detail).getByRole("button", { name: /Edit/i }));
+    const editor = await screen.findByRole("dialog", { name: "Edit recipe" });
+    fireEvent.change(within(editor).getByLabelText("Recipe name"), {
+      target: { value: "Weeknight spaghetti" }
+    });
+    expect(within(editor).queryByLabelText("Tags")).not.toBeInTheDocument();
+    fireEvent.click(within(editor).getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(capturedPayload).toBeDefined());
+    const request = capturedPayload as {
+      action: string;
+      payload: {
+        recipeId: string;
+        recipe: { title: string; tags: string[] };
+      };
+    };
+    expect(request.action).toBe("updateRecipe");
+    expect(request.payload.recipeId).toBe("recipe-1");
+    expect(request.payload.recipe.title).toBe("Weeknight spaghetti");
+    expect(request.payload.recipe.tags).toEqual(["Quick Cook"]);
+  });
+
+  it("labels public and saved recipes in the week picker", async () => {
+    render(
+      <AppStoreProvider
+        initialState={{
+          ...initialState,
+          recipes: [
+            recipeFixture({
+              id: "public-spaghetti",
+              title: "Spaghetti",
+              visibility: "public",
+              sourceType: "public-owned",
+              sourceLabel: "Public"
+            }),
+            recipeFixture({
+              id: "saved-spaghetti",
+              title: "Spaghetti",
+              attributionHousehold: "Mom's Kitchen",
+              sourceType: "saved-copy",
+              sourceLabel: "Saved from Mom's Kitchen"
+            })
+          ]
+        }}
+      >
+        <DinnerPlannerApp />
+      </AppStoreProvider>
+    );
+
+    fireEvent.click(
+      screen.getAllByRole("button", { name: /Add dinner/i })[0]
+    );
+    const picker = await screen.findByRole("dialog", {
+      name: /Monday, June 1/
+    });
+
+    expect(within(picker).getAllByText("Public").length).toBeGreaterThan(1);
+    expect(within(picker).getByText("Saved from Mom's Kitchen")).toBeVisible();
+    expect(within(picker).queryByText(/^v1$/)).not.toBeInTheDocument();
+
+    fireEvent.click(within(picker).getByRole("button", { name: "Saved recipes" }));
+    expect(within(picker).getByText("Saved from Mom's Kitchen")).toBeVisible();
   });
 });

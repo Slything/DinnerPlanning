@@ -68,6 +68,7 @@ export type RecipeSortMode =
   | "alphabetical";
 
 export type RecipeVisibility = "private" | "public";
+export type RecipeSourceType = "household" | "public-owned" | "saved-copy";
 
 export interface RecipeVersion {
   id: ID;
@@ -96,6 +97,8 @@ export interface Recipe {
   visibility: RecipeVisibility;
   publishedVersion?: number;
   attributionHousehold?: string;
+  sourceType?: RecipeSourceType;
+  sourceLabel?: string;
   updateAvailable?: boolean;
   currentVersion: number;
   versions: RecipeVersion[];

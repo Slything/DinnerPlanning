@@ -34,7 +34,7 @@ import {
   parseISO,
   startOfDay
 } from "date-fns";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   CookingAdjustment,
   AiModelOption,
@@ -42,7 +42,6 @@ import type {
   IngredientAmount,
   PlannedMeal,
   Recipe,
-  RecipeVisibility,
   SharedRecipeSnapshot
 } from "@/lib/domain/types";
 import {
@@ -65,6 +64,12 @@ import { rankRecipeSuggestions } from "@/lib/domain/suggestions";
 import {
   filterAndSortRecipes
 } from "@/lib/domain/recipe-filters";
+import {
+  recipeLabels,
+  recipeSourceLabel,
+  recipeSourceType,
+  recipeTagsForSave
+} from "@/lib/domain/recipe-labels";
 import {
   mergedIngredientCatalog,
   resolveIngredientInput,
@@ -111,13 +116,6 @@ function realRecipeImage(recipe: Recipe): string | undefined {
     return undefined;
   }
   return recipe.imageUrl;
-}
-
-function quickCookTags(tags: string[], quickCook: boolean): string[] {
-  const withoutQuickCook = tags.filter(
-    (tag) => tag.toLowerCase() !== "quick cook"
-  );
-  return quickCook ? ["Quick Cook", ...withoutQuickCook] : withoutQuickCook;
 }
 
 function UnitInput({
@@ -409,7 +407,7 @@ function WeekScreen({ notify }: { notify: (message: string) => void }) {
                   <>
                     <h3 className="meal-title">{recipe.title}</h3>
                     <div className="meal-meta">
-                      {recipe.tags.slice(0, 2).map((tag) => (
+                      {recipeLabels(recipe).slice(0, 2).map((tag) => (
                         <span key={tag}>{tag}</span>
                       ))}
                       {meal?.cookedAt ? (
@@ -493,7 +491,11 @@ function WeekScreen({ notify }: { notify: (message: string) => void }) {
           >
             <span className="tag">{suggestion.reason}</span>
             <h3>{suggestion.recipe.title}</h3>
-            <p>{suggestion.recipe.tags[0] ?? "Household recipe"}</p>
+            <p>
+              {recipeSourceLabel(suggestion.recipe) ??
+                recipeLabels(suggestion.recipe)[0] ??
+                "Household recipe"}
+            </p>
             <span className="suggestion-number">0{index + 1}</span>
           </button>
         ))}
@@ -530,11 +532,38 @@ function MealPickerModal({
 }) {
   const { state, scheduleRecipe, scheduleSpecial } = useAppStore();
   const [query, setQuery] = useState("");
-  const recipes = state.recipes.filter((recipe) =>
-    `${recipe.title} ${recipe.tags.join(" ")}`
-      .toLowerCase()
-      .includes(query.toLowerCase())
-  );
+  const [sourceFilter, setSourceFilter] = useState<
+    "all" | "mine" | "saved" | "public" | "favorites"
+  >("all");
+  const recipes = state.recipes
+    .filter(
+      (recipe, index, allRecipes) =>
+        allRecipes.findIndex((candidate) => candidate.id === recipe.id) === index
+    )
+    .filter((recipe) => {
+      const sourceType = recipeSourceType(recipe);
+      const haystack = [
+        recipe.title,
+        ...recipeLabels(recipe),
+        recipeSourceLabel(recipe) ?? ""
+      ]
+        .join(" ")
+        .toLowerCase();
+      const matchesQuery = haystack.includes(query.toLowerCase());
+      const matchesSource =
+        sourceFilter === "all" ||
+        (sourceFilter === "mine" && sourceType !== "saved-copy") ||
+        (sourceFilter === "saved" && sourceType === "saved-copy") ||
+        (sourceFilter === "public" && sourceType === "public-owned") ||
+        (sourceFilter === "favorites" && recipe.favorite);
+      return matchesQuery && matchesSource;
+    })
+    .sort((left, right) => {
+      const leftSaved = recipeSourceType(left) === "saved-copy";
+      const rightSaved = recipeSourceType(right) === "saved-copy";
+      if (leftSaved !== rightSaved) return leftSaved ? 1 : -1;
+      return left.title.localeCompare(right.title);
+    });
 
   return (
     <Modal
@@ -553,6 +582,30 @@ function MealPickerModal({
           />
         </label>
       </div>
+      <div className="filter-row">
+        {[
+          ["all", "All"],
+          ["mine", "My recipes"],
+          ["saved", "Saved recipes"],
+          ["public", "Public"],
+          ["favorites", "Favorites"]
+        ].map(([value, label]) => (
+          <button
+            className={
+              sourceFilter === value ? "filter-chip active" : "filter-chip"
+            }
+            key={value}
+            type="button"
+            onClick={() =>
+              setSourceFilter(
+                value as "all" | "mine" | "saved" | "public" | "favorites"
+              )
+            }
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       <div className="meal-picker-list">
         {recipes.map((recipe) => (
           <button
@@ -567,7 +620,11 @@ function MealPickerModal({
           >
             <span className="row-main">
               <strong>{recipe.title}</strong>
-              <span>{recipe.tags.slice(0, 2).join(" · ")}</span>
+              <span>
+                {[...recipeLabels(recipe), recipeSourceLabel(recipe)]
+                  .filter(Boolean)
+                  .join(" · ") || "Household recipe"}
+              </span>
             </span>
             <ChevronRight size={17} />
           </button>
@@ -669,7 +726,7 @@ function RecipesScreen({ notify }: { notify: (message: string) => void }) {
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search by recipe, ingredient, or tag"
+            placeholder="Search by recipe, ingredient, or Quick Cook"
           />
         </div>
       </div>
@@ -721,14 +778,13 @@ function RecipesScreen({ notify }: { notify: (message: string) => void }) {
               <h3>{recipe.title}</h3>
               <p>{recipe.description}</p>
               <div className="tag-row">
-                {recipe.tags.slice(0, 3).map((tag) => (
+                {[...recipeLabels(recipe), recipeSourceLabel(recipe)]
+                  .filter(Boolean)
+                  .map((tag) => (
                   <span className="tag" key={tag}>
                     {tag}
                   </span>
                 ))}
-              </div>
-              <div className="recipe-footer">
-                <span>v{recipe.currentVersion}</span>
               </div>
               {recipe.updateAvailable ? (
                 <span className="cooked-badge">Update available</span>
@@ -828,14 +884,20 @@ function resolveEditorIngredient(
 
 function RecipeEditorModal({
   open,
+  recipeId,
   onClose,
   notify
 }: {
   open: boolean;
+  recipeId?: string | null;
   onClose: () => void;
   notify: (message: string) => void;
 }) {
-  const { state, addRecipe } = useAppStore();
+  const { state, addRecipe, updateRecipe } = useAppStore();
+  const editingRecipe = recipeId
+    ? state.recipes.find((candidate) => candidate.id === recipeId)
+    : undefined;
+  const isEditing = Boolean(editingRecipe);
   const [mode, setMode] = useState<"manual" | "import">("manual");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -843,10 +905,7 @@ function RecipeEditorModal({
   const [yieldCount, setYieldCount] = useState("4");
   const [prepMinutes, setPrepMinutes] = useState("15");
   const [cookMinutes, setCookMinutes] = useState("30");
-  const [tags, setTags] = useState("");
   const [quickCook, setQuickCook] = useState(false);
-  const [visibility, setVisibility] =
-    useState<RecipeVisibility>("private");
   const [ingredients, setIngredients] = useState<IngredientEditorValue[]>([
     emptyIngredient(),
     emptyIngredient()
@@ -866,7 +925,7 @@ function RecipeEditorModal({
     [state.ingredientCatalog]
   );
 
-  function reset() {
+  const reset = useCallback(() => {
     setMode("manual");
     setTitle("");
     setDescription("");
@@ -874,9 +933,7 @@ function RecipeEditorModal({
     setYieldCount("4");
     setPrepMinutes("15");
     setCookMinutes("30");
-    setTags("");
     setQuickCook(false);
-    setVisibility("private");
     setIngredients([emptyIngredient(), emptyIngredient()]);
     setInstructions([""]);
     setImportText("");
@@ -884,10 +941,61 @@ function RecipeEditorModal({
     setModelId(state.household.aiModelId ?? "");
     setImportSetup(null);
     setWarnings([]);
-  }
+  }, [state.household.aiModelId]);
+
+  const populateFromRecipe = useCallback((recipe: Recipe) => {
+    const version = currentRecipeVersion(recipe);
+    setMode("manual");
+    setTitle(recipe.title);
+    setDescription(recipe.description);
+    setSourceUrl(recipe.sourceUrl ?? "");
+    setYieldCount(String(version.yield || 4));
+    setPrepMinutes(String(recipe.prepMinutes || 0));
+    setCookMinutes(String(recipe.cookMinutes || 0));
+    setQuickCook(recipeLabels(recipe).includes("Quick Cook"));
+    setIngredients(
+      version.ingredients.map((ingredient) => ({
+        id: ingredient.id || crypto.randomUUID(),
+        name: ingredient.name,
+        canonicalName: ingredient.canonicalName,
+        quantity:
+          ingredient.quantity === null ? "" : String(ingredient.quantity),
+        unit: ingredient.unit,
+        unitTouched: true,
+        catalogId: ingredient.catalogId,
+        dimension: ingredient.dimension,
+        aisle: ingredient.aisle,
+        aliases: ingredient.aliases,
+        saveToCatalog: ingredient.saveToCatalog ?? true
+      }))
+    );
+    setInstructions(version.instructions.length ? version.instructions : [""]);
+    setImportText("");
+    setImages([]);
+    setModelId(state.household.aiModelId ?? "");
+    setImportSetup(null);
+    setWarnings([]);
+  }, [state.household.aiModelId]);
 
   useEffect(() => {
-    if (!open || mode !== "import" || models.length || modelsLoading) return;
+    if (!open) return;
+    if (editingRecipe) {
+      populateFromRecipe(editingRecipe);
+    } else {
+      reset();
+    }
+  }, [editingRecipe, open, populateFromRecipe, reset]);
+
+  useEffect(() => {
+    if (
+      isEditing ||
+      !open ||
+      mode !== "import" ||
+      models.length ||
+      modelsLoading
+    ) {
+      return;
+    }
     setModelsLoading(true);
     void fetch("/api/ai/models")
       .then(async (response) => {
@@ -920,7 +1028,7 @@ function RecipeEditorModal({
         )
       )
       .finally(() => setModelsLoading(false));
-  }, [mode, models.length, modelsLoading, notify, open]);
+  }, [isEditing, mode, models.length, modelsLoading, notify, open]);
 
   async function addScreenshots(files: FileList | null) {
     if (!files) return;
@@ -991,11 +1099,6 @@ function RecipeEditorModal({
       setYieldCount(String(draft.yield || 4));
       setPrepMinutes(String(draft.prepMinutes || 0));
       setCookMinutes(String(draft.cookMinutes || 0));
-      setTags(
-        draft.tags
-          .filter((tag) => tag.toLowerCase() !== "quick cook")
-          .join(", ")
-      );
       setQuickCook(
         draft.tags.some((tag) => tag.toLowerCase() === "quick cook")
       );
@@ -1060,32 +1163,34 @@ function RecipeEditorModal({
       notify("Add a title and at least one ingredient.");
       return;
     }
-    const saved = await addRecipe({
+    const recipePayload = {
       title: title.trim(),
       description: description.trim(),
       sourceUrl: sourceUrl.trim() || undefined,
-      sourceCreator: state.household.name,
+      sourceCreator: editingRecipe?.sourceCreator ?? state.household.name,
       imageUrl: undefined,
       prepMinutes: Number(prepMinutes) || 0,
       cookMinutes: Number(cookMinutes) || 0,
-      tags: quickCookTags(
-        tags
-          .split(",")
-          .map((tag) => tag.trim())
-          .filter(Boolean),
-        quickCook
-      ),
-      favorite: false,
-      visibility,
+      tags: recipeTagsForSave(quickCook),
+      favorite: editingRecipe?.favorite ?? false,
+      visibility: editingRecipe?.visibility ?? "private",
       yield: Number(yieldCount) || 4,
       ingredients: parsedIngredients,
       instructions: instructions.map((step) => step.trim()).filter(Boolean)
-    });
+    };
+    const saved =
+      editingRecipe && recipeId
+        ? await updateRecipe(recipeId, recipePayload)
+        : await addRecipe(recipePayload);
     if (!saved) {
       notify("The recipe could not be saved.");
       return;
     }
-    notify(`${title.trim()} added to the household recipe box.`);
+    notify(
+      editingRecipe
+        ? `${title.trim()} updated.`
+        : `${title.trim()} added to the household recipe box.`
+    );
     reset();
     onClose();
   }
@@ -1093,7 +1198,7 @@ function RecipeEditorModal({
   return (
     <Modal
       open={open}
-      title="Add a recipe"
+      title={isEditing ? "Edit recipe" : "Add a recipe"}
       eyebrow="Recipe Book"
       onClose={() => {
         reset();
@@ -1101,16 +1206,18 @@ function RecipeEditorModal({
       }}
       wide
     >
-      <SegmentedControl
-        value={mode}
-        options={[
-          { value: "manual", label: "Enter manually" },
-          { value: "import", label: "Import with AI" }
-        ]}
-        onChange={setMode}
-      />
+      {!isEditing ? (
+        <SegmentedControl
+          value={mode}
+          options={[
+            { value: "manual", label: "Enter manually" },
+            { value: "import", label: "Import with AI" }
+          ]}
+          onChange={setMode}
+        />
+      ) : null}
 
-      {mode === "import" ? (
+      {!isEditing && mode === "import" ? (
         <div className="form-grid import-panel">
           <div className="import-callout">
             <Sparkles size={22} />
@@ -1458,7 +1565,7 @@ function RecipeEditorModal({
 
           <div className="recipe-extra-section">
             <div className="subsection-header">
-              <h3>Sharing and source</h3>
+              <h3>Source</h3>
             </div>
             <label>
               Source link
@@ -1468,29 +1575,9 @@ function RecipeEditorModal({
                 placeholder="Optional"
               />
             </label>
-            <label>
-              Tags
-              <input
-                value={tags}
-                onChange={(event) => setTags(event.target.value)}
-                placeholder="quick, vegetarian, family favorite"
-              />
-            </label>
-            <label>
-              Who can discover this recipe?
-              <select
-                value={visibility}
-                onChange={(event) =>
-                  setVisibility(event.target.value as RecipeVisibility)
-                }
-              >
-                <option value="private">Private to this household</option>
-                <option value="public">Gather &amp; Graze community</option>
-              </select>
-            </label>
             <p className="field-note">
-              Published recipes use {state.household.name} as the creator.
-              You can rename the household in Settings.
+              Sharing and community publishing live in the recipe&apos;s Share
+              button after it is saved.
             </p>
           </div>
 
@@ -1507,7 +1594,7 @@ function RecipeEditorModal({
               type="button"
               onClick={saveRecipe}
             >
-              Save recipe
+              {isEditing ? "Save changes" : "Save recipe"}
             </button>
           </div>
         </div>
@@ -1532,6 +1619,7 @@ function RecipeDetailModal({
     restoreRecipeVersion
   } = useAppStore();
   const [shareOpen, setShareOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [updating, setUpdating] = useState(false);
   const recipe = state.recipes.find((candidate) => candidate.id === recipeId);
   if (!recipe) {
@@ -1558,7 +1646,9 @@ function RecipeDetailModal({
       ) : null}
       <p>{recipe.description}</p>
       <div className="tag-row">
-        {recipe.tags.map((tag) => (
+        {[...recipeLabels(recipe), recipeSourceLabel(recipe)]
+          .filter(Boolean)
+          .map((tag) => (
           <span className="tag" key={tag}>
             {tag}
           </span>
@@ -1568,10 +1658,6 @@ function RecipeDetailModal({
         <div>
           <strong>{version.yield}</strong>
           <span>Makes</span>
-        </div>
-        <div>
-          <strong>v{recipe.currentVersion}</strong>
-          <span>Version</span>
         </div>
       </div>
       {recipe.attributionHousehold ? (
@@ -1602,20 +1688,21 @@ function RecipeDetailModal({
         <div className="version-note">
           <RotateCcw size={16} />
           <div className="row-main">
-            This recipe has {recipe.versions.length} saved versions. Restoring
-            creates another version, so no history is deleted.
+            <strong>Recipe history</strong>
+            <span>
+              This recipe has previous saved edits. Restoring creates another
+              saved edit, so no history is deleted.
+            </span>
           </div>
           <button
             className="secondary-button"
             onClick={() => {
               restoreRecipeVersion(recipe.id, recipe.currentVersion - 1);
-              notify(
-                `Version ${recipe.currentVersion - 1} queued for restoration.`
-              );
+              notify("Previous recipe version queued for restoration.");
               onClose();
             }}
           >
-            Restore v{recipe.currentVersion - 1}
+            Restore previous
           </button>
         </div>
       ) : null}
@@ -1693,6 +1780,13 @@ function RecipeDetailModal({
         <button
           className="secondary-button"
           type="button"
+          onClick={() => setEditOpen(true)}
+        >
+          <Pencil size={16} /> Edit
+        </button>
+        <button
+          className="secondary-button"
+          type="button"
           onClick={() => setShareOpen(true)}
         >
           <Share2 size={16} /> Share
@@ -1702,6 +1796,12 @@ function RecipeDetailModal({
         recipe={recipe}
         open={shareOpen}
         onClose={() => setShareOpen(false)}
+        notify={notify}
+      />
+      <RecipeEditorModal
+        open={editOpen}
+        recipeId={recipe.id}
+        onClose={() => setEditOpen(false)}
         notify={notify}
       />
     </Modal>

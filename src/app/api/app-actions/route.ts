@@ -12,6 +12,7 @@ import {
   normalizeUnit
 } from "@/lib/domain/quantities";
 import { generateShoppingList } from "@/lib/domain/shopping";
+import { visibleRecipeTags } from "@/lib/domain/recipe-labels";
 import { requireCompatibleModel } from "@/lib/openrouter/models";
 import { loadAppState } from "@/lib/supabase/app-state";
 import { rebuildPantryAllocations } from "@/lib/supabase/allocations";
@@ -29,6 +30,19 @@ function stringValue(value: unknown): string {
 function numericValue(value: unknown, fallback = 0): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function sanitizeRecipePayload(
+  recipe: Record<string, unknown>,
+  householdName: string
+): Record<string, unknown> {
+  return {
+    ...recipe,
+    sourceCreator: stringValue(recipe.sourceCreator) || householdName,
+    tags: Array.isArray(recipe.tags)
+      ? visibleRecipeTags(recipe.tags.map(String))
+      : []
+  };
 }
 
 export async function POST(request: Request) {
@@ -100,10 +114,7 @@ export async function POST(request: Request) {
     } else if (action === "addRecipe") {
       const recipe = payload.recipe as Record<string, unknown> | undefined;
       if (!recipe) throw new Error("Recipe data is required.");
-      const recipePayload: Record<string, unknown> = {
-        ...recipe,
-        sourceCreator: householdName
-      };
+      const recipePayload = sanitizeRecipePayload(recipe, householdName);
       const { data: recipeId, error } = await supabase.rpc("create_recipe_with_catalog", {
         recipe_payload: recipePayload
       });
@@ -118,6 +129,16 @@ export async function POST(request: Request) {
         );
         if (visibilityError) throw visibilityError;
       }
+    } else if (action === "updateRecipe") {
+      const recipeId = stringValue(payload.recipeId);
+      const recipe = payload.recipe as Record<string, unknown> | undefined;
+      if (!recipeId || !recipe) throw new Error("Recipe data is required.");
+      const recipePayload = sanitizeRecipePayload(recipe, householdName);
+      const { error } = await supabase.rpc("update_recipe_with_catalog", {
+        target_recipe: recipeId,
+        recipe_payload: recipePayload
+      });
+      if (error) throw error;
     } else if (action === "removeRecipe") {
       const recipeId = stringValue(payload.recipeId);
       if (!recipeId) throw new Error("Choose a recipe to delete.");
@@ -377,6 +398,7 @@ export async function POST(request: Request) {
       [
         "scheduleMeal",
         "removeMeal",
+        "updateRecipe",
         "removeRecipe",
         "upsertPantry",
         "removePantry",
@@ -387,7 +409,7 @@ export async function POST(request: Request) {
     ) {
       await rebuildPantryAllocations(supabase, user);
     }
-    if (["reviewProposal", "restoreRecipeVersion"].includes(action)) {
+    if (["reviewProposal", "restoreRecipeVersion", "updateRecipe"].includes(action)) {
       await supabase
         .from("shopping_lists")
         .update({ stale: true })

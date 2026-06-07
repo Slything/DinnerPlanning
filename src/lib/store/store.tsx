@@ -55,6 +55,7 @@ interface AppStore {
   scheduleSpecial: (date: string, kind: PlannedMeal["kind"]) => void;
   removeMeal: (mealId: string) => void;
   addRecipe: (recipe: NewRecipe) => Promise<boolean>;
+  updateRecipe: (recipeId: string, recipe: NewRecipe) => Promise<boolean>;
   removeRecipe: (recipeId: string) => Promise<boolean>;
   toggleFavorite: (recipeId: string) => void;
   upsertPantryItem: (input: PantryInput) => void;
@@ -202,6 +203,9 @@ export function AppStoreProvider({
       },
       async addRecipe(recipe) {
         return Boolean(await run("addRecipe", { recipe }));
+      },
+      async updateRecipe(recipeId, recipe) {
+        return Boolean(await run("updateRecipe", { recipeId, recipe }));
       },
       async removeRecipe(recipeId) {
         return Boolean(await run("removeRecipe", { recipeId }));
