@@ -48,6 +48,7 @@ function sanitizeRecipePayload(
 export async function POST(request: Request) {
   try {
     const { action, payload } = requestSchema.parse(await request.json());
+    let responseWeekStart = stringValue(payload.weekStart);
     const { supabase, user } = await requireUser();
     if (!supabase || !user) {
       return NextResponse.json({ error: "Authentication required." }, { status: 401 });
@@ -86,6 +87,7 @@ export async function POST(request: Request) {
         startOfWeek(parseISO(date), { weekStartsOn }),
         "yyyy-MM-dd"
       );
+      responseWeekStart = weekStart;
       const recipeId =
         kind === "recipe" ? stringValue(payload.recipeId) : null;
       if (kind === "recipe" && !recipeId) {
@@ -100,17 +102,27 @@ export async function POST(request: Request) {
       });
       if (error) throw error;
     } else if (action === "removeMeal") {
+      const mealId = stringValue(payload.mealId);
+      const { data: meal } = await supabase
+        .from("planned_meals")
+        .select("weekly_plan_id")
+        .eq("id", mealId)
+        .eq("household_id", householdId)
+        .maybeSingle();
       const { error } = await supabase
         .from("planned_meals")
         .delete()
-        .eq("id", stringValue(payload.mealId))
+        .eq("id", mealId)
         .eq("household_id", householdId);
       if (error) throw error;
-      await supabase
-        .from("shopping_lists")
-        .update({ stale: true })
-        .eq("household_id", householdId)
-        .is("completed_at", null);
+      if (meal?.weekly_plan_id) {
+        await supabase
+          .from("shopping_lists")
+          .update({ stale: true })
+          .eq("household_id", householdId)
+          .eq("weekly_plan_id", meal.weekly_plan_id)
+          .is("completed_at", null);
+      }
     } else if (action === "addRecipe") {
       const recipe = payload.recipe as Record<string, unknown> | undefined;
       if (!recipe) throw new Error("Recipe data is required.");
@@ -227,8 +239,11 @@ export async function POST(request: Request) {
         .eq("household_id", householdId);
       if (error) throw error;
     } else if (action === "generateShoppingList") {
-      const current = await loadAppState(supabase, user);
+      const current = await loadAppState(supabase, user, {
+        weekStart: responseWeekStart || undefined
+      });
       if (!current) throw new Error("Household state is unavailable.");
+      responseWeekStart = current.weeklyPlan.weekStart;
       const generated = generateShoppingList(
         current.weeklyPlan,
         current.recipes,
@@ -256,7 +271,9 @@ export async function POST(request: Request) {
         .eq("household_id", householdId);
       if (error) throw error;
     } else if (action === "addShoppingItem") {
-      const current = await loadAppState(supabase, user);
+      const current = await loadAppState(supabase, user, {
+        weekStart: responseWeekStart || undefined
+      });
       const name = stringValue(payload.name).trim();
       if (!current?.shoppingList || !name) {
         throw new Error("Generate a shopping list before adding an item.");
@@ -293,16 +310,22 @@ export async function POST(request: Request) {
       const itemIds = Array.isArray(payload.itemIds)
         ? payload.itemIds.map(String)
         : [];
-      const current = await loadAppState(supabase, user);
+      const current = await loadAppState(supabase, user, {
+        weekStart: responseWeekStart || undefined
+      });
       if (!current?.shoppingList) throw new Error("Shopping list not found.");
+      responseWeekStart = current.weeklyPlan.weekStart;
       const { error } = await supabase.rpc("complete_shopping_list", {
         target_list: current.shoppingList.id,
         purchased_item_ids: itemIds
       });
       if (error) throw error;
     } else if (action === "cookMeal") {
-      const current = await loadAppState(supabase, user);
+      const current = await loadAppState(supabase, user, {
+        weekStart: responseWeekStart || undefined
+      });
       if (!current) throw new Error("Household state is unavailable.");
+      responseWeekStart = current.weeklyPlan.weekStart;
       const mealId = stringValue(payload.mealId);
       const meal = current.weeklyPlan.meals.find((item) => item.id === mealId);
       const recipe = current.recipes.find(
@@ -407,7 +430,9 @@ export async function POST(request: Request) {
         "restoreRecipeVersion"
       ].includes(action)
     ) {
-      await rebuildPantryAllocations(supabase, user);
+      await rebuildPantryAllocations(supabase, user, {
+        weekStart: responseWeekStart || undefined
+      });
     }
     if (["reviewProposal", "restoreRecipeVersion", "updateRecipe"].includes(action)) {
       await supabase
@@ -416,7 +441,9 @@ export async function POST(request: Request) {
         .eq("household_id", householdId)
         .is("completed_at", null);
     }
-    const state = await loadAppState(supabase, user);
+    const state = await loadAppState(supabase, user, {
+      weekStart: responseWeekStart || undefined
+    });
     return NextResponse.json({ state });
   } catch (error) {
     return NextResponse.json(

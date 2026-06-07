@@ -9,15 +9,20 @@ import type { AuthenticatedUser } from "@/lib/supabase/server";
 
 export async function rebuildPantryAllocations(
   supabase: SupabaseClient,
-  user: AuthenticatedUser
+  user: AuthenticatedUser,
+  options?: { weekStart?: string }
 ) {
-  const state = await loadAppState(supabase, user);
+  const state = await loadAppState(supabase, user, options);
   if (!state) return;
-  const { error: deleteError } = await supabase
-    .from("pantry_allocations")
-    .delete()
-    .eq("household_id", state.household.id);
-  if (deleteError) throw deleteError;
+  const plannedMealIds = state.weeklyPlan.meals.map((meal) => meal.id);
+  if (plannedMealIds.length) {
+    const { error: deleteError } = await supabase
+      .from("pantry_allocations")
+      .delete()
+      .eq("household_id", state.household.id)
+      .in("planned_meal_id", plannedMealIds);
+    if (deleteError) throw deleteError;
+  }
 
   const requirements = new Map<
     string,

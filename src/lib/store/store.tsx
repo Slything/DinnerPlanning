@@ -50,7 +50,8 @@ interface AppStore {
   state: AppState;
   loaded: boolean;
   error: string | null;
-  refresh: () => Promise<void>;
+  refresh: (weekStart?: string) => Promise<void>;
+  setSelectedWeek: (weekStart: string) => Promise<void>;
   scheduleRecipe: (date: string, recipeId: string) => void;
   scheduleSpecial: (date: string, kind: PlannedMeal["kind"]) => void;
   removeMeal: (mealId: string) => void;
@@ -102,8 +103,13 @@ export function AppStoreProvider({
   const [state, setState] = useState(initialState);
   const [error, setError] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
-    const response = await fetch("/api/app-state", { cache: "no-store" });
+  const refresh = useCallback(async (weekStart?: string) => {
+    const query = weekStart
+      ? `?weekStart=${encodeURIComponent(weekStart)}`
+      : "";
+    const response = await fetch(`/api/app-state${query}`, {
+      cache: "no-store"
+    });
     if (!response.ok) return;
     setState((await response.json()) as AppState);
   }, []);
@@ -111,12 +117,14 @@ export function AppStoreProvider({
   const run = useCallback(
     async (
       action: string,
-      payload: Record<string, unknown>
+      payload: Record<string, unknown>,
+      weekStart?: string
     ): Promise<AppState | null> => {
+      const actionPayload = weekStart ? { ...payload, weekStart } : payload;
       const response = await fetch("/api/app-actions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, payload })
+        body: JSON.stringify({ action, payload: actionPayload })
       });
       const result = (await response.json()) as {
         state?: AppState;
@@ -140,7 +148,7 @@ export function AppStoreProvider({
   useEffect(() => {
     const sync = () => {
       void syncShoppingMutations()
-        .then(refresh)
+        .then(() => refresh(state.weeklyPlan.weekStart))
         .catch(() => undefined);
     };
     window.addEventListener("online", sync);
@@ -149,7 +157,7 @@ export function AppStoreProvider({
       window.removeEventListener("online", sync);
       window.removeEventListener("focus", sync);
     };
-  }, [refresh]);
+  }, [refresh, state.weeklyPlan.weekStart]);
 
   useEffect(() => {
     const supabase = createClient();
@@ -159,23 +167,23 @@ export function AppStoreProvider({
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "planned_meals" },
-        () => void refresh()
+        () => void refresh(state.weeklyPlan.weekStart)
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "pantry_items" },
-        () => void refresh()
+        () => void refresh(state.weeklyPlan.weekStart)
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "shopping_list_items" },
-        () => void refresh()
+        () => void refresh(state.weeklyPlan.weekStart)
       )
       .subscribe();
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [refresh, state.household.id]);
+  }, [refresh, state.household.id, state.weeklyPlan.weekStart]);
 
   const value = useMemo<AppStore>(
     () => ({
@@ -183,48 +191,63 @@ export function AppStoreProvider({
       loaded: true,
       error,
       refresh,
+      setSelectedWeek(weekStart) {
+        return refresh(weekStart);
+      },
       scheduleRecipe(date, recipeId) {
         void run("scheduleMeal", {
           date,
           kind: "recipe",
           recipeId,
           servings: state.household.defaultServings
-        });
+        }, state.weeklyPlan.weekStart);
       },
       scheduleSpecial(date, kind) {
         void run("scheduleMeal", {
           date,
           kind,
           servings: state.household.defaultServings
-        });
+        }, state.weeklyPlan.weekStart);
       },
       removeMeal(mealId) {
-        void run("removeMeal", { mealId });
+        void run("removeMeal", { mealId }, state.weeklyPlan.weekStart);
       },
       async addRecipe(recipe) {
-        return Boolean(await run("addRecipe", { recipe }));
+        return Boolean(await run("addRecipe", { recipe }, state.weeklyPlan.weekStart));
       },
       async updateRecipe(recipeId, recipe) {
-        return Boolean(await run("updateRecipe", { recipeId, recipe }));
+        return Boolean(
+          await run(
+            "updateRecipe",
+            { recipeId, recipe },
+            state.weeklyPlan.weekStart
+          )
+        );
       },
       async removeRecipe(recipeId) {
-        return Boolean(await run("removeRecipe", { recipeId }));
+        return Boolean(
+          await run("removeRecipe", { recipeId }, state.weeklyPlan.weekStart)
+        );
       },
       toggleFavorite(recipeId) {
-        void run("toggleFavorite", { recipeId });
+        void run("toggleFavorite", { recipeId }, state.weeklyPlan.weekStart);
       },
       upsertPantryItem(input) {
-        void run("upsertPantry", input as unknown as Record<string, unknown>);
+        void run(
+          "upsertPantry",
+          input as unknown as Record<string, unknown>,
+          state.weeklyPlan.weekStart
+        );
       },
       removePantryItem(id) {
-        void run("removePantry", { id });
+        void run("removePantry", { id }, state.weeklyPlan.weekStart);
       },
       generateList() {
-        void run("generateShoppingList", {});
+        void run("generateShoppingList", {}, state.weeklyPlan.weekStart);
       },
       toggleShoppingItem(id) {
         if (navigator.onLine) {
-          void run("toggleShoppingItem", { id });
+          void run("toggleShoppingItem", { id }, state.weeklyPlan.weekStart);
           return;
         }
         const item = state.shoppingList?.items.find(
@@ -256,7 +279,7 @@ export function AppStoreProvider({
       },
       addShoppingItem(name) {
         if (navigator.onLine) {
-          void run("addShoppingItem", { name });
+          void run("addShoppingItem", { name }, state.weeklyPlan.weekStart);
           return;
         }
         if (!state.shoppingList) return;
@@ -291,7 +314,7 @@ export function AppStoreProvider({
       },
       removeShoppingItem(id) {
         if (navigator.onLine) {
-          void run("removeShoppingItem", { id });
+          void run("removeShoppingItem", { id }, state.weeklyPlan.weekStart);
           return;
         }
         setState((current) => ({
@@ -311,17 +334,17 @@ export function AppStoreProvider({
         });
       },
       markListStale() {
-        void run("markListStale", {});
+        void run("markListStale", {}, state.weeklyPlan.weekStart);
       },
       completeShopping(itemIds) {
-        void run("completeShopping", { itemIds });
+        void run("completeShopping", { itemIds }, state.weeklyPlan.weekStart);
       },
       async cookMeal(mealId, notes, adjustments) {
         const nextState = await run("cookMeal", {
           mealId,
           notes,
           adjustments
-        });
+        }, state.weeklyPlan.weekStart);
         return (
           nextState?.proposals.find(
             (proposal) =>
@@ -337,27 +360,41 @@ export function AppStoreProvider({
           proposalId,
           status,
           ingredients
-        });
+        }, state.weeklyPlan.weekStart);
         return nextState
           ? { ok: true }
           : { ok: false, message: "The proposal could not be reviewed." };
       },
       setRecipeVisibility(recipeId, visibility) {
-        void run("setRecipeVisibility", { recipeId, visibility });
+        void run(
+          "setRecipeVisibility",
+          { recipeId, visibility },
+          state.weeklyPlan.weekStart
+        );
       },
       async setAiModel(modelId) {
-        return Boolean(await run("setAiModel", { modelId }));
+        return Boolean(await run("setAiModel", { modelId }, state.weeklyPlan.weekStart));
       },
       async updateHousehold(name) {
-        return Boolean(await run("updateHousehold", { name }));
+        return Boolean(
+          await run("updateHousehold", { name }, state.weeklyPlan.weekStart)
+        );
       },
       async updateMemberProfile(input) {
         return Boolean(
-          await run("updateMemberProfile", input as unknown as Record<string, unknown>)
+          await run(
+            "updateMemberProfile",
+            input as unknown as Record<string, unknown>,
+            state.weeklyPlan.weekStart
+          )
         );
       },
       restoreRecipeVersion(recipeId, version) {
-        void run("restoreRecipeVersion", { recipeId, version });
+        void run(
+          "restoreRecipeVersion",
+          { recipeId, version },
+          state.weeklyPlan.weekStart
+        );
       }
     }),
     [error, refresh, run, state]

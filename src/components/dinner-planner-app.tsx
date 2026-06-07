@@ -32,7 +32,8 @@ import {
   format,
   isSameDay,
   parseISO,
-  startOfDay
+  startOfDay,
+  startOfWeek
 } from "date-fns";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
@@ -104,6 +105,27 @@ function mealRecipe(meal: PlannedMeal | undefined, recipes: Recipe[]) {
 function quantityLabel(quantity: number | null, unit: string) {
   if (quantity === null) return `In stock · amount unknown`;
   return `In stock · ${formatIngredientAmount({ quantity, unit })}`;
+}
+
+function formatDateKey(date: Date): string {
+  return format(date, "yyyy-MM-dd");
+}
+
+function currentPlanningWeekStart(weekStartsOn: 0 | 1): string {
+  return formatDateKey(startOfWeek(new Date(), { weekStartsOn }));
+}
+
+function shiftedWeekStart(weekStart: string, days: number): string {
+  return formatDateKey(addDays(parseISO(weekStart), days));
+}
+
+function formatWeekRange(weekStart: string): string {
+  const start = parseISO(weekStart);
+  const end = addDays(start, 6);
+  if (format(start, "yyyy-MM") === format(end, "yyyy-MM")) {
+    return `${format(start, "MMM d")}-${format(end, "d, yyyy")}`;
+  }
+  return `${format(start, "MMM d")}-${format(end, "MMM d, yyyy")}`;
 }
 
 const PLACEHOLDER_RECIPE_IMAGE =
@@ -311,13 +333,20 @@ export function DinnerPlannerApp() {
 }
 
 function WeekScreen({ notify }: { notify: (message: string) => void }) {
-  const { state, removeMeal } = useAppStore();
+  const { state, removeMeal, setSelectedWeek } = useAppStore();
   const [pickerDate, setPickerDate] = useState<string | null>(null);
   const [cookMealId, setCookMealId] = useState<string | null>(null);
   const [editRecipeId, setEditRecipeId] = useState<string | null>(null);
   const [proposalId, setProposalId] = useState<string | null>(null);
+  const [loadingWeek, setLoadingWeek] = useState<string | null>(null);
+  const selectedWeekStart = state.weeklyPlan.weekStart;
+  const currentWeekStart = currentPlanningWeekStart(
+    state.household.weekStartsOn
+  );
+  const selectedWeekRange = formatWeekRange(selectedWeekStart);
+  const isCurrentWeek = selectedWeekStart === currentWeekStart;
   const days = Array.from({ length: 7 }, (_, index) =>
-    addDays(parseISO(state.weeklyPlan.weekStart), index)
+    addDays(parseISO(selectedWeekStart), index)
   );
   const suggestions = rankRecipeSuggestions({
     recipes: state.recipes,
@@ -327,13 +356,21 @@ function WeekScreen({ notify }: { notify: (message: string) => void }) {
   const pending = state.proposals.filter(
     (proposal) => proposal.status === "pending"
   );
+  async function chooseWeek(weekStart: string) {
+    setLoadingWeek(weekStart);
+    try {
+      await setSelectedWeek(weekStart);
+    } finally {
+      setLoadingWeek(null);
+    }
+  }
 
   return (
     <>
       <div className="screen-header">
         <div>
-          <p className="eyebrow">{format(days[0], "MMMM yyyy")}</p>
-          <h1>This week</h1>
+          <p className="eyebrow">{selectedWeekRange}</p>
+          <h1>{isCurrentWeek ? "This week" : "Planning week"}</h1>
           <p>
             A calmer week starts with seven small decisions. Blank nights are
             allowed.
@@ -357,6 +394,34 @@ function WeekScreen({ notify }: { notify: (message: string) => void }) {
         >
           <Plus size={17} />
           <span className="header-cta-label">Add dinner</span>
+        </button>
+      </div>
+
+      <div className="week-switcher card">
+        <button
+          className="secondary-button"
+          disabled={Boolean(loadingWeek)}
+          onClick={() => void chooseWeek(shiftedWeekStart(selectedWeekStart, -7))}
+        >
+          Previous week
+        </button>
+        <div className="week-switcher-current">
+          <span>Planning groceries for</span>
+          <strong>{selectedWeekRange}</strong>
+        </div>
+        <button
+          className="secondary-button"
+          disabled={Boolean(loadingWeek) || isCurrentWeek}
+          onClick={() => void chooseWeek(currentWeekStart)}
+        >
+          Current week
+        </button>
+        <button
+          className="secondary-button"
+          disabled={Boolean(loadingWeek)}
+          onClick={() => void chooseWeek(shiftedWeekStart(selectedWeekStart, 7))}
+        >
+          Next week
         </button>
       </div>
 
@@ -2340,6 +2405,8 @@ function ShoppingScreen({ notify }: { notify: (message: string) => void }) {
   } = useAppStore();
   const [manualName, setManualName] = useState("");
   const [completeOpen, setCompleteOpen] = useState(false);
+  const [generateOpen, setGenerateOpen] = useState(false);
+  const selectedWeekRange = formatWeekRange(state.weeklyPlan.weekStart);
   const review = useMemo(
     () =>
       buildPantryReview(state.weeklyPlan, state.recipes, state.pantry),
@@ -2347,6 +2414,8 @@ function ShoppingScreen({ notify }: { notify: (message: string) => void }) {
   );
   const unresolved = review.filter((line) => line.unresolved);
   const list = state.shoppingList;
+  const listMatchesSelectedWeek =
+    !list || list.weeklyPlanId === state.weeklyPlan.id;
   const checked = list?.items.filter((item) => item.checked).length ?? 0;
   const total = list?.items.length ?? 0;
   const shoppingItems = list?.items ?? [];
@@ -2356,11 +2425,11 @@ function ShoppingScreen({ notify }: { notify: (message: string) => void }) {
       <>
         <div className="screen-header">
           <div>
-            <p className="eyebrow">Before the store</p>
+            <p className="eyebrow">Shopping for {selectedWeekRange}</p>
             <h1>Pantry check</h1>
             <p>
-              We combined the week’s recipes. Confirm what is already home,
-              then generate only what you need.
+              We combined this planning week’s recipes. Confirm what is already
+              home, then generate only what you need.
             </p>
           </div>
         </div>
@@ -2458,8 +2527,7 @@ function ShoppingScreen({ notify }: { notify: (message: string) => void }) {
               className="primary-button"
               disabled={unresolved.length > 0}
               onClick={() => {
-                generateList();
-                notify("Shopping list generated from this week and pantry.");
+                setGenerateOpen(true);
               }}
             >
               <ShoppingBasket size={17} />
@@ -2467,6 +2535,17 @@ function ShoppingScreen({ notify }: { notify: (message: string) => void }) {
             </button>
           </div>
         )}
+        <GenerateShoppingListModal
+          open={generateOpen}
+          weekRange={selectedWeekRange}
+          regenerating={Boolean(list)}
+          onClose={() => setGenerateOpen(false)}
+          onConfirm={() => {
+            generateList();
+            notify(`Shopping list generated for ${selectedWeekRange}.`);
+            setGenerateOpen(false);
+          }}
+        />
       </>
     );
   }
@@ -2475,11 +2554,21 @@ function ShoppingScreen({ notify }: { notify: (message: string) => void }) {
     <>
       <div className="screen-header">
         <div>
-          <p className="eyebrow">Shared and pantry-aware</p>
+          <p className="eyebrow">Shopping for {selectedWeekRange}</p>
           <h1>Shopping list</h1>
-          <p>Check it on either phone. The active list works offline too.</p>
+          <p>Check it on either phone. This list belongs to the selected week.</p>
         </div>
       </div>
+
+      {!listMatchesSelectedWeek ? (
+        <div className="alert-card card">
+          <CircleAlert size={21} color="#d97d54" />
+          <div className="row-main">
+            <strong>This list belongs to a different week</strong>
+            <p>Switch weeks or regenerate before shopping.</p>
+          </div>
+        </div>
+      ) : null}
 
       <div className="shopping-toolbar">
         <div className="shopping-progress">
@@ -2493,7 +2582,10 @@ function ShoppingScreen({ notify }: { notify: (message: string) => void }) {
             {checked} of {total} checked
           </span>
         </div>
-        <button className="secondary-button" onClick={generateList}>
+        <button
+          className="secondary-button"
+          onClick={() => setGenerateOpen(true)}
+        >
           <RotateCcw size={15} /> Refresh
         </button>
         <button
@@ -2581,7 +2673,58 @@ function ShoppingScreen({ notify }: { notify: (message: string) => void }) {
         onClose={() => setCompleteOpen(false)}
         notify={notify}
       />
+      <GenerateShoppingListModal
+        open={generateOpen}
+        weekRange={selectedWeekRange}
+        regenerating
+        onClose={() => setGenerateOpen(false)}
+        onConfirm={() => {
+          generateList();
+          notify(`Shopping list regenerated for ${selectedWeekRange}.`);
+          setGenerateOpen(false);
+        }}
+      />
     </>
+  );
+}
+
+function GenerateShoppingListModal({
+  open,
+  weekRange,
+  regenerating,
+  onClose,
+  onConfirm
+}: {
+  open: boolean;
+  weekRange: string;
+  regenerating: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <Modal
+      open={open}
+      title={regenerating ? "Regenerate grocery list?" : "Generate grocery list?"}
+      eyebrow="Confirm week"
+      onClose={onClose}
+    >
+      <p className="modal-lede">
+        {regenerating
+          ? "This will refresh the grocery list for"
+          : "This will create a grocery list for"}{" "}
+        <strong>{weekRange}</strong>. Matching checked items and manual
+        additions are preserved when possible.
+      </p>
+      <div className="form-actions">
+        <button className="secondary-button" onClick={onClose}>
+          Cancel
+        </button>
+        <button className="primary-button" onClick={onConfirm}>
+          <ShoppingBasket size={16} />
+          {regenerating ? "Regenerate list" : "Generate list"}
+        </button>
+      </div>
+    </Modal>
   );
 }
 

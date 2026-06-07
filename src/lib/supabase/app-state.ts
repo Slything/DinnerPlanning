@@ -1,4 +1,4 @@
-import { format, startOfWeek } from "date-fns";
+import { format, isValid, parseISO, startOfWeek } from "date-fns";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
   AppState,
@@ -118,7 +118,8 @@ function mapPantry(row: Row): PantryItem {
 
 export async function loadAppState(
   supabase: SupabaseClient,
-  user: AuthenticatedUser
+  user: AuthenticatedUser,
+  options?: { weekStart?: string }
 ): Promise<AppState | null> {
   const { data: membershipData, error: membershipError } = await supabase
     .from("household_members")
@@ -137,8 +138,12 @@ export async function loadAppState(
   const householdRow = householdRelation as Row;
   const householdId = text(membership.household_id);
   const weekStartsOn = numberValue(householdRow.week_starts_on) === 1 ? 1 : 0;
+  const requestedWeek = options?.weekStart
+    ? parseISO(options.weekStart)
+    : new Date();
+  const weekDate = isValid(requestedWeek) ? requestedWeek : new Date();
   const weekStart = format(
-    startOfWeek(new Date(), { weekStartsOn }),
+    startOfWeek(weekDate, { weekStartsOn }),
     "yyyy-MM-dd"
   );
 
@@ -212,6 +217,7 @@ export async function loadAppState(
       .from("shopping_lists")
       .select("*")
       .eq("household_id", householdId)
+      .eq("weekly_plan_id", text(plan.id))
       .is("completed_at", null)
       .order("generated_at", { ascending: false })
       .limit(1),

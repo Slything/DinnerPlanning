@@ -2,7 +2,8 @@ import { z } from "zod";
 import { POST as runAction } from "@/app/api/app-actions/route";
 
 const schema = z.object({
-  itemIds: z.array(z.string().uuid()).max(500)
+  itemIds: z.array(z.string().uuid()).max(500),
+  weekStart: z.string().optional()
 });
 
 export async function POST(

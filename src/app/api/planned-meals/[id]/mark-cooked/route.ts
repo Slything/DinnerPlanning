@@ -4,7 +4,8 @@ import type { CookingAdjustment } from "@/lib/domain/types";
 
 const schema = z.object({
   notes: z.string().max(4_000).default(""),
-  adjustments: z.array(z.custom<CookingAdjustment>()).default([])
+  adjustments: z.array(z.custom<CookingAdjustment>()).default([]),
+  weekStart: z.string().optional()
 });
 
 export async function POST(

@@ -56,6 +56,11 @@ function openRecipesTab() {
   fireEvent.click(recipesButtons[recipesButtons.length - 1]);
 }
 
+function openShoppingTab() {
+  const shopButtons = screen.getAllByRole("button", { name: "Shop" });
+  fireEvent.click(shopButtons[shopButtons.length - 1]);
+}
+
 function openAddRecipeModal() {
   const addRecipeButtons = screen.getAllByRole("button", {
     name: /Add recipe/i
@@ -110,6 +115,102 @@ function recipeFixture(input: Partial<Recipe> & { id: string; title: string }): 
       ]
   };
 }
+
+describe("DinnerPlannerApp multi-week planning", () => {
+  it("loads the next planning week from app state", async () => {
+    const nextWeekState: AppState = {
+      ...initialState,
+      weeklyPlan: {
+        ...initialState.weeklyPlan,
+        id: "plan-next",
+        weekStart: "2026-06-08",
+        meals: []
+      }
+    };
+    let requestedUrl = "";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        requestedUrl = String(input);
+        if (requestedUrl === "/api/app-state?weekStart=2026-06-08") {
+          return new Response(JSON.stringify(nextWeekState), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+        throw new Error(`Unexpected fetch to ${requestedUrl}`);
+      })
+    );
+
+    render(
+      <AppStoreProvider initialState={initialState}>
+        <DinnerPlannerApp />
+      </AppStoreProvider>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Next week" }));
+
+    expect(await screen.findAllByText("Jun 8-14, 2026")).not.toHaveLength(0);
+    expect(requestedUrl).toBe("/api/app-state?weekStart=2026-06-08");
+  });
+
+  it("confirms the selected week before generating a shopping list", async () => {
+    const recipe = recipeFixture({ id: "recipe-1", title: "Spaghetti" });
+    const state: AppState = {
+      ...initialState,
+      recipes: [recipe],
+      weeklyPlan: {
+        ...initialState.weeklyPlan,
+        meals: [
+          {
+            id: "meal-1",
+            householdId: "household-1",
+            date: "2026-06-01",
+            kind: "recipe",
+            recipeId: recipe.id,
+            servings: 4
+          }
+        ]
+      }
+    };
+    let capturedPayload: unknown;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) === "/api/app-actions") {
+          capturedPayload = JSON.parse(String(init?.body));
+          return new Response(JSON.stringify({ state }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+        throw new Error(`Unexpected fetch to ${String(input)}`);
+      })
+    );
+
+    render(
+      <AppStoreProvider initialState={state}>
+        <DinnerPlannerApp />
+      </AppStoreProvider>
+    );
+
+    openShoppingTab();
+    await screen.findByRole("heading", { name: "Pantry check" });
+    fireEvent.click(screen.getByRole("button", { name: "Generate list" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Generate grocery list?"
+    });
+
+    expect(within(dialog).getByText("Jun 1-7, 2026")).toBeVisible();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Generate list" }));
+
+    await waitFor(() => expect(capturedPayload).toBeDefined());
+    expect(capturedPayload).toMatchObject({
+      action: "generateShoppingList",
+      payload: { weekStart: "2026-06-01" }
+    });
+  });
+});
 
 describe("DinnerPlannerApp recipe importing", () => {
   it("shows a setup callout when OpenRouter is not configured", async () => {

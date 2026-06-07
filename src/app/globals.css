@@ -230,6 +230,28 @@ h3,
   line-height: 1.5;
 }
 
+.week-switcher {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 18px;
+  padding: 12px;
+}
+
+.week-switcher-current {
+  display: grid;
+  gap: 2px;
+  justify-items: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.week-switcher-current strong {
+  color: var(--ink);
+  font-size: 15px;
+}
+
 .eyebrow {
   margin-bottom: 7px;
   color: var(--terracotta);
@@ -1431,6 +1453,15 @@ label {
 
   .screen-header .header-cta-label {
     display: none;
+  }
+
+  .week-switcher {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .week-switcher-current {
+    grid-column: 1 / -1;
+    order: -1;
   }
 
   .recipe-grid {
