@@ -410,8 +410,184 @@ describe("DinnerPlannerApp recipe editing and labels", () => {
     expect(within(picker).getAllByText("Public").length).toBeGreaterThan(1);
     expect(within(picker).getByText("Saved from Mom's Kitchen")).toBeVisible();
     expect(within(picker).queryByText(/^v1$/)).not.toBeInTheDocument();
+    expect(
+      within(picker).queryByRole("button", { name: "Saved recipes" })
+    ).not.toBeInTheDocument();
+  });
+});
 
-    fireEvent.click(within(picker).getByRole("button", { name: "Saved recipes" }));
-    expect(within(picker).getByText("Saved from Mom's Kitchen")).toBeVisible();
+describe("DinnerPlannerApp community recipes", () => {
+  it("shows the household's own public recipes in the community modal", async () => {
+    const publicRecipe = recipeFixture({
+      id: "public-spaghetti",
+      title: "Spaghetti",
+      visibility: "public",
+      sourceType: "public-owned",
+      sourceLabel: "Public"
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input) === "/api/community-recipes") {
+          return new Response(JSON.stringify({ recipes: [] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+        throw new Error(`Unexpected fetch to ${String(input)}`);
+      })
+    );
+
+    render(
+      <AppStoreProvider
+        initialState={{
+          ...initialState,
+          recipes: [publicRecipe]
+        }}
+      >
+        <DinnerPlannerApp />
+      </AppStoreProvider>
+    );
+
+    openRecipesTab();
+    await screen.findByRole("heading", { name: "Recipe Book" });
+    fireEvent.click(screen.getByRole("button", { name: "Community" }));
+    const modal = await screen.findByRole("dialog", {
+      name: "Community recipes"
+    });
+
+    expect(within(modal).getByText("Your public recipes")).toBeVisible();
+    expect(within(modal).getByText("Spaghetti")).toBeVisible();
+    expect(within(modal).getByText("Public in your Recipe Book")).toBeVisible();
+    expect(
+      within(modal).queryByRole("button", { name: "Save copy" })
+    ).not.toBeInTheDocument();
+  });
+});
+
+describe("DinnerPlannerApp cooked flow", () => {
+  function plannedDinnerState(recipe: Recipe): AppState {
+    return {
+      ...initialState,
+      recipes: [recipe],
+      weeklyPlan: {
+        ...initialState.weeklyPlan,
+        meals: [
+          {
+            id: "meal-1",
+            householdId: "household-1",
+            date: "2026-06-01",
+            kind: "recipe",
+            recipeId: recipe.id,
+            servings: 4
+          }
+        ]
+      }
+    };
+  }
+
+  it("marks cooked as complete without ingredient adjustments", async () => {
+    const recipe = recipeFixture({ id: "recipe-1", title: "Spaghetti" });
+    const state = plannedDinnerState(recipe);
+    let capturedPayload: unknown;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) === "/api/app-actions") {
+          capturedPayload = JSON.parse(String(init?.body));
+          return new Response(
+            JSON.stringify({
+              state: {
+                ...state,
+                weeklyPlan: {
+                  ...state.weeklyPlan,
+                  meals: [
+                    {
+                      ...state.weeklyPlan.meals[0],
+                      cookedAt: "2026-06-01T23:00:00.000Z"
+                    }
+                  ]
+                }
+              }
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        throw new Error(`Unexpected fetch to ${String(input)}`);
+      })
+    );
+
+    render(
+      <AppStoreProvider initialState={state}>
+        <DinnerPlannerApp />
+      </AppStoreProvider>
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Mark Spaghetti cooked" })
+    );
+    const review = await screen.findByRole("dialog", {
+      name: "How did Spaghetti go?"
+    });
+
+    expect(within(review).queryByText("Actually used")).not.toBeInTheDocument();
+    expect(within(review).queryByText("Add adjustment")).not.toBeInTheDocument();
+
+    fireEvent.click(within(review).getByRole("button", { name: "Complete" }));
+
+    await waitFor(() => expect(capturedPayload).toBeDefined());
+    expect(capturedPayload).toMatchObject({
+      action: "cookMeal",
+      payload: {
+        mealId: "meal-1",
+        notes: "",
+        adjustments: []
+      }
+    });
+  });
+
+  it("opens the recipe editor after choosing change next time", async () => {
+    const recipe = recipeFixture({ id: "recipe-1", title: "Spaghetti" });
+    const state = plannedDinnerState(recipe);
+    let capturedPayload: unknown;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) === "/api/app-actions") {
+          capturedPayload = JSON.parse(String(init?.body));
+          return new Response(JSON.stringify({ state }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+        throw new Error(`Unexpected fetch to ${String(input)}`);
+      })
+    );
+
+    render(
+      <AppStoreProvider initialState={state}>
+        <DinnerPlannerApp />
+      </AppStoreProvider>
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Mark Spaghetti cooked" })
+    );
+    const review = await screen.findByRole("dialog", {
+      name: "How did Spaghetti go?"
+    });
+    fireEvent.click(
+      within(review).getByRole("button", { name: "Change next time" })
+    );
+
+    await screen.findByRole("dialog", { name: "Edit recipe" });
+    expect(capturedPayload).toMatchObject({
+      action: "cookMeal",
+      payload: {
+        mealId: "meal-1",
+        notes: "",
+        adjustments: []
+      }
+    });
   });
 });

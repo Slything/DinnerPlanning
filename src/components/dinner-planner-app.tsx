@@ -36,7 +36,6 @@ import {
 } from "date-fns";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
-  CookingAdjustment,
   AiModelOption,
   GroceryAisle,
   IngredientAmount,
@@ -55,7 +54,6 @@ import {
   resolveUnitInput,
   unitLabel
 } from "@/lib/domain/quantities";
-import { createAdjustment } from "@/lib/domain/cooking";
 import {
   buildPantryReview,
   currentRecipeVersion
@@ -316,6 +314,7 @@ function WeekScreen({ notify }: { notify: (message: string) => void }) {
   const { state, removeMeal } = useAppStore();
   const [pickerDate, setPickerDate] = useState<string | null>(null);
   const [cookMealId, setCookMealId] = useState<string | null>(null);
+  const [editRecipeId, setEditRecipeId] = useState<string | null>(null);
   const [proposalId, setProposalId] = useState<string | null>(null);
   const days = Array.from({ length: 7 }, (_, index) =>
     addDays(parseISO(state.weeklyPlan.weekStart), index)
@@ -509,7 +508,13 @@ function WeekScreen({ notify }: { notify: (message: string) => void }) {
       <CookingReviewModal
         mealId={cookMealId}
         onClose={() => setCookMealId(null)}
-        onProposal={(id) => setProposalId(id)}
+        onChangeNextTime={(recipeId) => setEditRecipeId(recipeId)}
+        notify={notify}
+      />
+      <RecipeEditorModal
+        open={Boolean(editRecipeId)}
+        recipeId={editRecipeId ?? undefined}
+        onClose={() => setEditRecipeId(null)}
         notify={notify}
       />
       <ProposalReviewModal
@@ -533,7 +538,7 @@ function MealPickerModal({
   const { state, scheduleRecipe, scheduleSpecial } = useAppStore();
   const [query, setQuery] = useState("");
   const [sourceFilter, setSourceFilter] = useState<
-    "all" | "mine" | "saved" | "public" | "favorites"
+    "all" | "mine" | "public" | "favorites"
   >("all");
   const recipes = state.recipes
     .filter(
@@ -553,7 +558,6 @@ function MealPickerModal({
       const matchesSource =
         sourceFilter === "all" ||
         (sourceFilter === "mine" && sourceType !== "saved-copy") ||
-        (sourceFilter === "saved" && sourceType === "saved-copy") ||
         (sourceFilter === "public" && sourceType === "public-owned") ||
         (sourceFilter === "favorites" && recipe.favorite);
       return matchesQuery && matchesSource;
@@ -586,7 +590,6 @@ function MealPickerModal({
         {[
           ["all", "All"],
           ["mine", "My recipes"],
-          ["saved", "Saved recipes"],
           ["public", "Public"],
           ["favorites", "Favorites"]
         ].map(([value, label]) => (
@@ -598,7 +601,7 @@ function MealPickerModal({
             type="button"
             onClick={() =>
               setSourceFilter(
-                value as "all" | "mine" | "saved" | "public" | "favorites"
+                value as "all" | "mine" | "public" | "favorites"
               )
             }
           >
@@ -2006,9 +2009,14 @@ function CommunityRecipeModal({
   onClose: () => void;
   notify: (message: string) => void;
 }) {
-  const { refresh } = useAppStore();
+  const { state, refresh } = useAppStore();
   const [recipes, setRecipes] = useState<CommunityRecipe[]>([]);
   const [loading, setLoading] = useState(false);
+  const ownPublicRecipes = state.recipes.filter(
+    (recipe) =>
+      recipe.visibility === "public" &&
+      recipeSourceType(recipe) === "public-owned"
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -2045,42 +2053,80 @@ function CommunityRecipeModal({
           <LoaderCircle className="spin" />
           <span>Loading shared recipes...</span>
         </div>
-      ) : recipes.length ? (
-        <div className="list-stack">
-          {recipes.map((recipe) => (
-            <article className="pantry-row card" key={recipe.id}>
-              <Globe2 size={20} color="#315c4a" />
-              <div className="row-main">
-                <strong>{recipe.title}</strong>
-                <span>Shared by {recipe.attributionHousehold}</span>
+      ) : ownPublicRecipes.length || recipes.length ? (
+        <>
+          {ownPublicRecipes.length ? (
+            <>
+              <div className="section-title compact">
+                <div>
+                  <p className="eyebrow">Published by you</p>
+                  <h3>Your public recipes</h3>
+                </div>
               </div>
-              <button
-                className="primary-button"
-                onClick={async () => {
-                  const response = await fetch("/api/community-recipes", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ recipeId: recipe.id })
-                  });
-                  const result = (await response.json()) as { error?: string };
-                  if (!response.ok) {
-                    notify(result.error ?? "The recipe could not be copied.");
-                    return;
-                  }
-                  await refresh();
-                  notify(`${recipe.title} copied to your household.`);
-                  onClose();
-                }}
-              >
-                <Download size={15} /> Save copy
-              </button>
-            </article>
-          ))}
-        </div>
+              <div className="list-stack">
+                {ownPublicRecipes.map((recipe) => (
+                  <article className="pantry-row card" key={recipe.id}>
+                    <Globe2 size={20} color="#315c4a" />
+                    <div className="row-main">
+                      <strong>{recipe.title}</strong>
+                      <span>Public in your Recipe Book</span>
+                    </div>
+                    <span className="tag">Already yours</span>
+                  </article>
+                ))}
+              </div>
+            </>
+          ) : null}
+          {recipes.length ? (
+            <>
+              <div className="section-title compact">
+                <div>
+                  <p className="eyebrow">From other households</p>
+                  <h3>Community recipes</h3>
+                </div>
+              </div>
+              <div className="list-stack">
+                {recipes.map((recipe) => (
+                  <article className="pantry-row card" key={recipe.id}>
+                    <Globe2 size={20} color="#315c4a" />
+                    <div className="row-main">
+                      <strong>{recipe.title}</strong>
+                      <span>Shared by {recipe.attributionHousehold}</span>
+                    </div>
+                    <button
+                      className="primary-button"
+                      onClick={async () => {
+                        const response = await fetch("/api/community-recipes", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ recipeId: recipe.id })
+                        });
+                        const result = (await response.json()) as {
+                          error?: string;
+                        };
+                        if (!response.ok) {
+                          notify(
+                            result.error ?? "The recipe could not be copied."
+                          );
+                          return;
+                        }
+                        await refresh();
+                        notify(`${recipe.title} copied to your household.`);
+                        onClose();
+                      }}
+                    >
+                      <Download size={15} /> Save copy
+                    </button>
+                  </article>
+                ))}
+              </div>
+            </>
+          ) : null}
+        </>
       ) : (
         <EmptyState
           title="No public recipes yet"
-          body="Recipes published by other households will appear here."
+          body="Publish one from a recipe's Share button, or check back for recipes from other households."
         />
       )}
     </Modal>
@@ -2618,12 +2664,12 @@ function CompleteShoppingModal({
 function CookingReviewModal({
   mealId,
   onClose,
-  onProposal,
+  onChangeNextTime,
   notify
 }: {
   mealId: string | null;
   onClose: () => void;
-  onProposal: (proposalId: string) => void;
+  onChangeNextTime: (recipeId: string) => void;
   notify: (message: string) => void;
 }) {
   const { state, cookMeal } = useAppStore();
@@ -2633,75 +2679,29 @@ function CookingReviewModal({
   const recipe = state.recipes.find(
     (candidate) => candidate.id === meal?.recipeId
   );
-  const version = recipe ? currentRecipeVersion(recipe) : null;
-  const [notes, setNotes] = useState("");
-  const [adjustments, setAdjustments] = useState<CookingAdjustment[]>([]);
-  const [ingredientId, setIngredientId] = useState("");
-  const [newName, setNewName] = useState("");
-  const [intent, setIntent] =
-    useState<CookingAdjustment["intent"]>("actual");
-  const [kind, setKind] = useState<CookingAdjustment["kind"]>("more");
-  const [quantity, setQuantity] = useState("");
-  const [unit, setUnit] = useState("count");
-  const [qualitative, setQualitative] =
-    useState<NonNullable<CookingAdjustment["qualitative"]>>("some");
+  const [savingAction, setSavingAction] = useState<
+    "complete" | "change-next-time" | null
+  >(null);
 
   useEffect(() => {
-    if (!mealId) return;
-    setNotes("");
-    setAdjustments([]);
-    setIngredientId(version?.ingredients[0]?.id ?? "new");
-    setNewName("");
-    setIntent("actual");
-    setKind("more");
-    setQuantity("");
-    setUnit(version?.ingredients[0]?.unit ?? "count");
-  }, [mealId, version]);
+    if (!mealId) setSavingAction(null);
+  }, [mealId]);
 
-  const selectedIngredient = version?.ingredients.find(
-    (ingredient) => ingredient.id === ingredientId
-  );
-
-  function addAdjustment() {
-    const name =
-      ingredientId === "new" ? newName.trim() : selectedIngredient?.name;
-    if (!name) {
-      notify("Choose or name an ingredient.");
-      return;
-    }
-    const parsed = kind === "skipped" ? 0 : parseQuantity(quantity);
-    setAdjustments((current) => [
-      ...current,
-      createAdjustment({
-        ingredientId:
-          ingredientId === "new" ? undefined : selectedIngredient?.id,
-        name,
-        intent,
-        kind: ingredientId === "new" ? "new" : kind,
-        quantity: kind === "skipped" ? 0 : parsed,
-        unit:
-          ingredientId === "new" ? unit : selectedIngredient?.unit ?? unit,
-        qualitative: parsed === null ? qualitative : undefined,
-        aisle:
-          ingredientId === "new"
-            ? inferAisle(name)
-            : selectedIngredient?.aisle
-      })
-    ]);
-    setQuantity("");
-    setNewName("");
-  }
-
-  async function submit() {
+  async function markCooked(action: "complete" | "change-next-time") {
     if (!meal || !recipe) return;
-    const proposal = await cookMeal(meal.id, notes, adjustments);
-    notify(
-      proposal
-        ? `${recipe.title} marked cooked. Recipe improvements are ready to review.`
-        : `${recipe.title} marked cooked and pantry usage recorded.`
-    );
-    onClose();
-    if (proposal) onProposal(proposal.id);
+    setSavingAction(action);
+    try {
+      await cookMeal(meal.id, "", []);
+      notify(
+        action === "change-next-time"
+          ? `${recipe.title} marked cooked. Make any recipe changes for next time.`
+          : `${recipe.title} marked cooked and pantry usage recorded.`
+      );
+      onClose();
+      if (action === "change-next-time") onChangeNextTime(recipe.id);
+    } finally {
+      setSavingAction(null);
+    }
   }
 
   return (
@@ -2710,180 +2710,46 @@ function CookingReviewModal({
       title={recipe ? `How did ${recipe.title} go?` : "Cooking review"}
       eyebrow="Mark cooked"
       onClose={onClose}
-      wide
     >
       <div className="cooking-intro">
         <ChefHat size={25} />
         <div>
-          <strong>Record what actually happened</strong>
+          <strong>Mark this dinner cooked</strong>
           <p>
-            “Actually used” updates pantry stock today. “Next time” improves
-            the recipe proposal without changing today’s inventory.
+            We will assume you used the recipe amounts as saved. If the recipe
+            should change for next time, you can edit it right after marking it
+            cooked.
           </p>
         </div>
       </div>
 
-      <div className="adjustment-builder card">
-        <div className="form-two">
-          <label>
-            Ingredient
-            <select
-              value={ingredientId}
-              onChange={(event) => {
-                setIngredientId(event.target.value);
-                const ingredient = version?.ingredients.find(
-                  (item) => item.id === event.target.value
-                );
-                if (ingredient) setUnit(ingredient.unit);
-              }}
-            >
-              {version?.ingredients.map((ingredient) => (
-                <option key={ingredient.id} value={ingredient.id}>
-                  {ingredient.name}
-                </option>
-              ))}
-              <option value="new">Something not in the recipe</option>
-            </select>
-          </label>
-          {ingredientId === "new" ? (
-            <label>
-              New ingredient
-              <input
-                value={newName}
-                onChange={(event) => setNewName(event.target.value)}
-                placeholder="Smoked paprika"
-              />
-            </label>
-          ) : (
-            <label>
-              Feedback applies to
-              <SegmentedControl
-                value={intent}
-                options={[
-                  { value: "actual", label: "Actually used" },
-                  { value: "next-time", label: "Change next time" }
-                ]}
-                onChange={setIntent}
-              />
-            </label>
-          )}
-        </div>
-        {ingredientId === "new" ? (
-          <SegmentedControl
-            value={intent}
-            options={[
-              { value: "actual", label: "Actually used" },
-              { value: "next-time", label: "Change next time" }
-            ]}
-            onChange={setIntent}
-          />
-        ) : null}
-        <div className="form-three">
-          <label>
-            Change
-            <select
-              value={kind}
-              onChange={(event) =>
-                setKind(event.target.value as CookingAdjustment["kind"])
-              }
-              disabled={ingredientId === "new"}
-            >
-              <option value="more">Used / need more</option>
-              <option value="less">Used / need less</option>
-              <option value="skipped">Skipped it</option>
-            </select>
-          </label>
-          <label>
-            Amount
-            <input
-              value={quantity}
-              disabled={kind === "skipped"}
-              onChange={(event) => setQuantity(event.target.value)}
-              placeholder="1/2"
-            />
-          </label>
-          <label>
-            Unit
-            <UnitInput
-              listId="cooking-adjustment-unit-options"
-              value={unit}
-              disabled={ingredientId !== "new"}
-              onChange={(nextUnit) => setUnit(nextUnit)}
-            />
-          </label>
-        </div>
-        {!quantity && kind !== "skipped" ? (
-          <label>
-            If you do not know the amount
-            <select
-              value={qualitative}
-              onChange={(event) =>
-                setQualitative(
-                  event.target.value as NonNullable<
-                    CookingAdjustment["qualitative"]
-                  >
-                )
-              }
-            >
-              <option value="little">A little</option>
-              <option value="some">Some extra</option>
-              <option value="lot">A lot more</option>
-              <option value="as-needed">As needed</option>
-            </select>
-          </label>
-        ) : null}
-        <button className="secondary-button" type="button" onClick={addAdjustment}>
-          <Plus size={15} /> Add adjustment
-        </button>
-      </div>
-
-      {adjustments.length ? (
-        <div className="adjustment-list">
-          {adjustments.map((adjustment) => (
-            <div className="adjustment-chip" key={adjustment.id}>
-              <span
-                className={`intent-pill ${
-                  adjustment.intent === "next-time" ? "future" : ""
-                }`}
-              >
-                {adjustment.intent === "actual" ? "used" : "next time"}
-              </span>
-              <strong>
-                {adjustment.name}: {adjustment.kind}{" "}
-                {adjustment.quantity === null
-                  ? adjustment.qualitative
-                  : formatIngredientAmount(adjustment)}
-              </strong>
-              <button
-                className="mini-button"
-                onClick={() =>
-                  setAdjustments((current) =>
-                    current.filter((item) => item.id !== adjustment.id)
-                  )
-                }
-                aria-label="Remove adjustment"
-              >
-                <Trash2 size={14} />
-              </button>
-            </div>
-          ))}
-        </div>
-      ) : null}
-
-      <label>
-        General cooking notes
-        <textarea
-          value={notes}
-          onChange={(event) => setNotes(event.target.value)}
-          placeholder="The sauce thickened quickly; start the pasta a few minutes earlier."
-        />
-      </label>
       <div className="form-actions">
         <button className="secondary-button" onClick={onClose}>
           Cancel
         </button>
-        <button className="primary-button" onClick={submit}>
-          <Check size={16} /> Mark cooked
+        <button
+          className="secondary-button"
+          disabled={Boolean(savingAction)}
+          onClick={() => void markCooked("change-next-time")}
+        >
+          {savingAction === "change-next-time" ? (
+            <LoaderCircle className="spin" size={16} />
+          ) : (
+            <Pencil size={16} />
+          )}
+          Change next time
+        </button>
+        <button
+          className="primary-button"
+          disabled={Boolean(savingAction)}
+          onClick={() => void markCooked("complete")}
+        >
+          {savingAction === "complete" ? (
+            <LoaderCircle className="spin" size={16} />
+          ) : (
+            <Check size={16} />
+          )}
+          Complete
         </button>
       </div>
     </Modal>
