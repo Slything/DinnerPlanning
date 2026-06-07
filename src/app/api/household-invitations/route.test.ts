@@ -26,33 +26,20 @@ function request(email = "sister@example.com") {
 describe("/api/household-invitations", () => {
   it("sends new-account invite emails through the auth callback", async () => {
     const inviteUserByEmail = vi.fn().mockResolvedValue({ error: null });
-    const singleInvitation = vi.fn().mockResolvedValue({
-      data: {
-        id: "invitation-1",
-        email: "sister@example.com",
-        expires_at: "2026-06-13T00:00:00.000Z"
-      },
-      error: null
-    });
-    const singleMembership = vi.fn().mockResolvedValue({
-      data: { household_id: "household-1" },
-      error: null
-    });
-    vi.mocked(createAdminSupabaseClient).mockReturnValue({
-      from: vi.fn((table: string) => {
-        if (table === "household_members") {
-          return {
-            select: () => ({
-              eq: () => ({ single: singleMembership })
-            })
-          };
+    const rpc = vi.fn().mockResolvedValue({
+      data: [
+        {
+          id: "invitation-1",
+          email: "sister@example.com",
+          token: "00000000-0000-4000-8000-000000000001",
+          expires_at: "2026-06-13T00:00:00.000Z"
         }
-        return {
-          insert: () => ({
-            select: () => ({ single: singleInvitation })
-          })
-        };
-      }),
+      ],
+      error: null
+    });
+    const from = vi.fn();
+    vi.mocked(createAdminSupabaseClient).mockReturnValue({
+      from,
       auth: {
         admin: {
           listUsers: vi.fn().mockResolvedValue({
@@ -64,7 +51,7 @@ describe("/api/household-invitations", () => {
       }
     } as never);
     vi.mocked(requireUser).mockResolvedValue({
-      supabase: {} as never,
+      supabase: { rpc } as never,
       user: {
         id: "user-1",
         email: "cook@example.com",
@@ -80,6 +67,10 @@ describe("/api/household-invitations", () => {
 
     expect(response.status).toBe(200);
     expect(payload.inviteUrl).toBe(`${PRODUCTION_APP_URL}/invite/${payload.token}`);
+    expect(rpc).toHaveBeenCalledWith("create_household_invitation", {
+      invite_email: "sister@example.com"
+    });
+    expect(from).not.toHaveBeenCalled();
     expect(inviteUserByEmail).toHaveBeenCalledWith("sister@example.com", {
       redirectTo: `${PRODUCTION_APP_URL}/auth/callback?next=%2Finvite%2F${payload.token}`
     });
@@ -87,37 +78,20 @@ describe("/api/household-invitations", () => {
 
   it("generates a household link without reserving an email", async () => {
     const inviteUserByEmail = vi.fn();
-    const insertedRows: Array<Record<string, unknown>> = [];
-    const singleInvitation = vi.fn().mockResolvedValue({
-      data: {
-        id: "invitation-1",
-        email: null,
-        expires_at: "2026-06-13T00:00:00.000Z"
-      },
-      error: null
-    });
-    const singleMembership = vi.fn().mockResolvedValue({
-      data: { household_id: "household-1" },
-      error: null
-    });
-    vi.mocked(createAdminSupabaseClient).mockReturnValue({
-      from: vi.fn((table: string) => {
-        if (table === "household_members") {
-          return {
-            select: () => ({
-              eq: () => ({ single: singleMembership })
-            })
-          };
+    const rpc = vi.fn().mockResolvedValue({
+      data: [
+        {
+          id: "invitation-1",
+          email: null,
+          token: "00000000-0000-4000-8000-000000000002",
+          expires_at: "2026-06-13T00:00:00.000Z"
         }
-        return {
-          insert: (row: Record<string, unknown>) => {
-            insertedRows.push(row);
-            return {
-              select: () => ({ single: singleInvitation })
-            };
-          }
-        };
-      }),
+      ],
+      error: null
+    });
+    const from = vi.fn();
+    vi.mocked(createAdminSupabaseClient).mockReturnValue({
+      from,
       auth: {
         admin: {
           listUsers: vi.fn(),
@@ -126,7 +100,7 @@ describe("/api/household-invitations", () => {
       }
     } as never);
     vi.mocked(requireUser).mockResolvedValue({
-      supabase: {} as never,
+      supabase: { rpc } as never,
       user: {
         id: "user-1",
         email: "cook@example.com",
@@ -146,11 +120,10 @@ describe("/api/household-invitations", () => {
     expect(payload.email).toBeNull();
     expect(payload.emailSent).toBe(false);
     expect(payload.inviteUrl).toBe(`${PRODUCTION_APP_URL}/invite/${payload.token}`);
-    expect(insertedRows[0]).toMatchObject({
-      household_id: "household-1",
-      email: null,
-      invited_by: "user-1"
+    expect(rpc).toHaveBeenCalledWith("create_household_invitation", {
+      invite_email: null
     });
+    expect(from).not.toHaveBeenCalled();
     expect(inviteUserByEmail).not.toHaveBeenCalled();
   });
 });

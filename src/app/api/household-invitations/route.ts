@@ -26,33 +26,17 @@ export async function POST(request: Request) {
         { status: 401 }
       );
     }
-    const membershipClient = admin ?? supabase;
-    const { data: membership, error: membershipError } = await membershipClient
-      .from("household_members")
-      .select("household_id")
-      .eq("user_id", user.id)
-      .single();
-    if (membershipError || !membership) {
-      return NextResponse.json(
-        { error: "Create or join a household before sending invitations." },
-        { status: 403 }
-      );
-    }
-    const token = crypto.randomUUID();
-    const invitationClient = admin ?? supabase;
-    const { data, error } = await invitationClient
-      .from("household_invitations")
-      .insert({
-        household_id: membership.household_id,
-        email: normalizedEmail ?? null,
-        token,
-        invited_by: user.id
-      })
-      .select("id,email,expires_at")
-      .single();
+    const { data: invitationData, error } = await supabase.rpc(
+      "create_household_invitation",
+      { invite_email: normalizedEmail ?? null }
+    );
     if (error) throw error;
+    const invitation = Array.isArray(invitationData)
+      ? invitationData[0]
+      : invitationData;
+    if (!invitation) throw new Error("Invitation could not be created.");
     const requestOrigin = new URL(request.url).origin;
-    const invitePath = `/invite/${token}`;
+    const invitePath = `/invite/${invitation.token}`;
     const inviteUrl = appUrl(invitePath, requestOrigin);
     const emailRedirectUrl = authCallbackUrl(invitePath, requestOrigin);
     let emailSent = false;
@@ -84,10 +68,10 @@ export async function POST(request: Request) {
       }
     }
     return NextResponse.json({
-      id: data.id,
-      email: data.email,
-      expiresAt: data.expires_at,
-      token,
+      id: invitation.id,
+      email: invitation.email,
+      expiresAt: invitation.expires_at,
+      token: invitation.token,
       inviteUrl,
       emailSent,
       emailError
