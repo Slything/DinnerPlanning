@@ -1,12 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  createAdminSupabaseClient,
-  requireUser
-} from "@/lib/supabase/server";
+import { requireUser } from "@/lib/supabase/server";
 import { POST } from "./route";
 
 vi.mock("@/lib/supabase/server", () => ({
-  createAdminSupabaseClient: vi.fn(),
   requireUser: vi.fn()
 }));
 
@@ -27,17 +23,14 @@ function request(
 
 describe("/api/household-invitations/accept", () => {
   it("keeps Supabase RPC error messages instead of returning a generic failure", async () => {
-    vi.mocked(createAdminSupabaseClient).mockReturnValue(null);
+    const rpc = vi.fn().mockResolvedValue({
+      data: null,
+      error: {
+        message: "Invitation is invalid, expired, or belongs to another email"
+      }
+    });
     vi.mocked(requireUser).mockResolvedValue({
-      supabase: {
-        rpc: vi.fn().mockResolvedValue({
-          data: null,
-          error: {
-            message:
-              "Invitation is invalid, expired, or belongs to another email"
-          }
-        })
-      } as never,
+      supabase: { rpc, from: vi.fn() } as never,
       user: {
         id: "user-1",
         email: "wife@example.com",
@@ -54,84 +47,20 @@ describe("/api/household-invitations/accept", () => {
     );
   });
 
-  it("rejects a household invite when the signed-in email does not match", async () => {
-    const rpc = vi.fn();
-    const maybeInvitation = vi.fn().mockResolvedValue({
-      data: {
-        id: "invite-1",
-        email: "wife@example.com",
-        expires_at: "2999-01-01T00:00:00.000Z",
-        accepted_at: null,
-        household_id: "household-1"
-      },
-      error: null
-    });
-    vi.mocked(createAdminSupabaseClient).mockReturnValue({
-      from: vi.fn(() => ({
-        select: () => ({
-          eq: () => ({
-            maybeSingle: maybeInvitation
-          })
-        })
-      }))
-    } as never);
-    vi.mocked(requireUser).mockResolvedValue({
-      supabase: { rpc } as never,
-      user: {
-        id: "user-1",
-        email: "someone-else@example.com",
-        displayName: "Someone"
-      }
-    });
-
-    const response = await POST(request());
-    const payload = (await response.json()) as { error: string };
-
-    expect(response.status).toBe(403);
-    expect(payload.error).toContain("This invitation is for wife@example.com");
-    expect(payload.error).toContain("someone-else@example.com");
-    expect(rpc).not.toHaveBeenCalled();
-  });
-
-  it("allows a link-only invite without matching a reserved email", async () => {
+  it("accepts a link-only invite through the RPC without direct table reads", async () => {
+    const from = vi.fn();
     const rpc = vi.fn().mockResolvedValue({
-      data: "household-1",
+      data: [
+        {
+          result_status: "accepted",
+          target_household_id: "household-1",
+          copied_recipe_count: 0
+        }
+      ],
       error: null
     });
-    vi.mocked(createAdminSupabaseClient).mockReturnValue({
-      from: vi.fn((table: string) => {
-        if (table === "household_invitations") {
-          return {
-            select: () => ({
-              eq: () => ({
-                maybeSingle: vi.fn().mockResolvedValue({
-                  data: {
-                    id: "invite-1",
-                    email: null,
-                    expires_at: "2999-01-01T00:00:00.000Z",
-                    accepted_at: null,
-                    household_id: "household-1"
-                  },
-                  error: null
-                })
-              })
-            })
-          };
-        }
-        return {
-          select: () => ({
-            eq: () => ({
-              maybeSingle: vi.fn().mockResolvedValue({
-                data: null,
-                error: null
-              })
-            })
-          })
-        };
-      })
-    } as never);
     vi.mocked(requireUser).mockResolvedValue({
-      supabase: { rpc } as never,
+      supabase: { rpc, from } as never,
       user: {
         id: "user-1",
         email: "anyone@example.com",
@@ -140,64 +69,42 @@ describe("/api/household-invitations/accept", () => {
     });
 
     const response = await POST(request());
-    const payload = (await response.json()) as { householdId: string };
+    const payload = (await response.json()) as {
+      householdId: string;
+      copiedRecipeCount: number;
+    };
 
     expect(response.status).toBe(200);
-    expect(payload).toEqual({ householdId: "household-1" });
-    expect(rpc).toHaveBeenCalledWith("accept_household_invitation", {
-      invitation_token: "00000000-0000-4000-8000-000000000001"
+    expect(payload).toEqual({
+      householdId: "household-1",
+      copiedRecipeCount: 0
     });
+    expect(rpc).toHaveBeenCalledWith(
+      "accept_or_preview_household_invitation",
+      {
+        invitation_token: "00000000-0000-4000-8000-000000000001",
+        switch_and_copy: false
+      }
+    );
+    expect(from).not.toHaveBeenCalled();
   });
 
-  it("returns switch details when the signed-in user belongs to another household", async () => {
-    const rpc = vi.fn();
-    vi.mocked(createAdminSupabaseClient).mockReturnValue({
-      from: vi.fn((table: string) => {
-        if (table === "household_invitations") {
-          return {
-            select: () => ({
-              eq: () => ({
-                maybeSingle: vi.fn().mockResolvedValue({
-                  data: {
-                    id: "invite-1",
-                    email: "wife@example.com",
-                    expires_at: "2999-01-01T00:00:00.000Z",
-                    accepted_at: null,
-                    household_id: "new-household",
-                    households: { name: "New Kitchen" }
-                  },
-                  error: null
-                })
-              })
-            })
-          };
+  it("returns switch details from the RPC when the user belongs to another household", async () => {
+    const from = vi.fn();
+    const rpc = vi.fn().mockResolvedValue({
+      data: [
+        {
+          result_status: "switch_required",
+          target_household_id: "new-household",
+          current_household_name: "Old Kitchen",
+          invited_household_name: "New Kitchen",
+          copied_recipe_count: 2
         }
-        if (table === "household_members") {
-          return {
-            select: () => ({
-              eq: () => ({
-                maybeSingle: vi.fn().mockResolvedValue({
-                  data: {
-                    household_id: "old-household",
-                    households: { name: "Old Kitchen" }
-                  },
-                  error: null
-                })
-              })
-            })
-          };
-        }
-        return {
-          select: () => ({
-            eq: () => ({
-              eq: vi.fn().mockResolvedValue({ count: 2, error: null })
-            })
-          })
-        };
-      })
-    } as never);
+      ],
+      error: null
+    });
     vi.mocked(requireUser).mockResolvedValue({
-      supabase: { rpc } as never,
+      supabase: { rpc, from } as never,
       user: {
         id: "user-1",
         email: "wife@example.com",
@@ -220,115 +127,23 @@ describe("/api/household-invitations/accept", () => {
       invitedHouseholdName: "New Kitchen",
       copiedRecipeCount: 2
     });
-    expect(rpc).not.toHaveBeenCalled();
-  });
-
-  it("marks an invite accepted when the user already belongs to that household", async () => {
-    const rpc = vi.fn();
-    const updateInvitation = vi.fn().mockReturnValue({
-      eq: vi.fn().mockResolvedValue({ error: null })
-    });
-    vi.mocked(createAdminSupabaseClient).mockReturnValue({
-      from: vi.fn((table: string) => {
-        if (table === "household_invitations") {
-          return {
-            select: () => ({
-              eq: () => ({
-                maybeSingle: vi.fn().mockResolvedValue({
-                  data: {
-                    id: "invite-1",
-                    email: "wife@example.com",
-                    expires_at: "2999-01-01T00:00:00.000Z",
-                    accepted_at: null,
-                    household_id: "household-1"
-                  },
-                  error: null
-                })
-              })
-            }),
-            update: updateInvitation
-          };
-        }
-        return {
-          select: () => ({
-            eq: () => ({
-              maybeSingle: vi.fn().mockResolvedValue({
-                data: { household_id: "household-1" },
-                error: null
-              })
-            })
-          })
-        };
-      })
-    } as never);
-    vi.mocked(requireUser).mockResolvedValue({
-      supabase: { rpc } as never,
-      user: {
-        id: "user-1",
-        email: "wife@example.com",
-        displayName: "Wife"
-      }
-    });
-
-    const response = await POST(request());
-    const payload = (await response.json()) as { householdId: string };
-
-    expect(response.status).toBe(200);
-    expect(payload).toEqual({ householdId: "household-1" });
-    expect(updateInvitation).toHaveBeenCalledWith({
-      accepted_at: expect.any(String)
-    });
-    expect(rpc).not.toHaveBeenCalled();
+    expect(from).not.toHaveBeenCalled();
   });
 
   it("switches households when explicitly confirmed", async () => {
+    const from = vi.fn();
     const rpc = vi.fn().mockResolvedValue({
       data: [
         {
-          household_id: "new-household",
+          result_status: "accepted",
+          target_household_id: "new-household",
           copied_recipe_count: 3
         }
       ],
       error: null
     });
-    vi.mocked(createAdminSupabaseClient).mockReturnValue({
-      from: vi.fn((table: string) => {
-        if (table === "household_invitations") {
-          return {
-            select: () => ({
-              eq: () => ({
-                maybeSingle: vi.fn().mockResolvedValue({
-                  data: {
-                    id: "invite-1",
-                    email: "wife@example.com",
-                    expires_at: "2999-01-01T00:00:00.000Z",
-                    accepted_at: null,
-                    household_id: "new-household",
-                    households: { name: "New Kitchen" }
-                  },
-                  error: null
-                })
-              })
-            })
-          };
-        }
-        return {
-          select: () => ({
-            eq: () => ({
-              maybeSingle: vi.fn().mockResolvedValue({
-                data: {
-                  household_id: "old-household",
-                  households: { name: "Old Kitchen" }
-                },
-                error: null
-              })
-            })
-          })
-        };
-      })
-    } as never);
     vi.mocked(requireUser).mockResolvedValue({
-      supabase: { rpc } as never,
+      supabase: { rpc, from } as never,
       user: {
         id: "user-1",
         email: "wife@example.com",
@@ -349,8 +164,13 @@ describe("/api/household-invitations/accept", () => {
       householdId: "new-household",
       copiedRecipeCount: 3
     });
-    expect(rpc).toHaveBeenCalledWith("switch_household_from_invitation", {
-      invitation_token: "00000000-0000-4000-8000-000000000001"
-    });
+    expect(rpc).toHaveBeenCalledWith(
+      "accept_or_preview_household_invitation",
+      {
+        invitation_token: "00000000-0000-4000-8000-000000000001",
+        switch_and_copy: true
+      }
+    );
+    expect(from).not.toHaveBeenCalled();
   });
 });

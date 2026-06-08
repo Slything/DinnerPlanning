@@ -1,10 +1,7 @@
 import { Check, Users } from "lucide-react";
 import Link from "next/link";
 import { InvitationAcceptButton } from "@/components/invitation-accept-button";
-import {
-  createAdminSupabaseClient,
-  requireUser
-} from "@/lib/supabase/server";
+import { requireUser } from "@/lib/supabase/server";
 
 export default async function InvitationPage({
   params
@@ -12,23 +9,19 @@ export default async function InvitationPage({
   params: Promise<{ token: string }>;
 }) {
   const { token } = await params;
-  const admin = createAdminSupabaseClient();
-  const { user } = await requireUser();
-  const invitationResult = admin
-    ? await admin
-        .from("household_invitations")
-        .select("email,expires_at,accepted_at,households(name)")
-        .eq("token", token)
-        .maybeSingle()
-    : { data: null, error: new Error("Supabase admin access is not configured.") };
-  const invitation = invitationResult.data;
+  const { supabase, user } = await requireUser();
+  const invitationResult = supabase
+    ? await supabase.rpc("get_household_invitation", {
+        invitation_token: token
+      })
+    : { data: null, error: new Error("Supabase is not configured.") };
+  const invitation = Array.isArray(invitationResult.data)
+    ? invitationResult.data[0]
+    : invitationResult.data;
   const lookupUnavailable = Boolean(invitationResult.error);
-  const household = Array.isArray(invitation?.households)
-    ? invitation.households[0]
-    : invitation?.households;
   const expired =
     !lookupUnavailable &&
-    (!invitation || Boolean(invitation.accepted_at));
+    (!invitation || Boolean(invitation.accepted_at) || invitation.is_expired);
   const next = `/invite/${token}`;
   const invitationEmail = invitation?.email ?? "";
   const signedInEmail = user?.email ?? "";
@@ -53,7 +46,7 @@ export default async function InvitationPage({
             ? "This invitation is no longer available"
             : lookupUnavailable
               ? "Accept household invitation"
-            : `Join ${household?.name ?? "the household"}`}
+            : `Join ${invitation?.invited_household_name ?? "the household"}`}
         </h1>
         {expired ? (
           <p>The link may have expired after seven days or already been used.</p>
